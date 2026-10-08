@@ -1,7 +1,9 @@
 import { convertToModelMessages, stepCountIs, streamText, tool } from "ai";
+import { webSearch } from "@exalabs/ai-sdk";
 import { z } from "zod";
 
 const tools = {
+  webSearch: webSearch(),
   getCurrentTime: tool({
     description: "Get the current date and time. Use this when the user asks what time or date it is.",
     inputSchema: z.object({
@@ -49,8 +51,10 @@ export async function POST(req: Request) {
     model: "openai/gpt-5.5",
     system:
       "You are Z-Agent, a capable general-purpose AI agent. Be helpful, clear, and honest. " +
-      "Use tools when they improve accuracy. Do not expose private chain-of-thought. " +
-      "Never claim a tool was used if it was not.",
+      "Use tools when they improve accuracy. Use webSearch for current, changing, niche, or source-sensitive information. " +
+      "When webSearch returns sources, ground factual claims in those sources and include useful source links in your answer. " +
+      "Do not expose private chain-of-thought. Never claim a tool was used if it was not. " +
+      "Respect authorization, privacy, and safety boundaries.",
     tools,
     stopWhen: stepCountIs(5),
     messages: await convertToModelMessages(messages),
