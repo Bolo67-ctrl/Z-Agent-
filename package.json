@@ -13,7 +13,8 @@
     "react": "latest",
     "react-dom": "latest",
     "ai": "latest",
-    "@ai-sdk/react": "latest"
+    "@ai-sdk/react": "latest",
+    "zod": "latest"
   },
   "devDependencies": {
     "@types/node": "latest",
