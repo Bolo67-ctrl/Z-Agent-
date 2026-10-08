@@ -15,7 +15,7 @@ Z-Agent turns natural-language requests into useful work: reasoning, planning, t
 - [x] V0 app foundation
 - [ ] V1 streaming chat + agent loop
 - [ ] Tool calling
-- [ ] Web research
+- [x] Web research
 - [ ] File access
 - [ ] GitHub workspace tools
 - [ ] Persistent memory
