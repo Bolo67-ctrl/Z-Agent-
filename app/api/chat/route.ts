@@ -2,6 +2,42 @@ import { convertToModelMessages, stepCountIs, streamText, tool } from "ai";
 import { z } from "zod";
 
 const tools = {
+  githubListTree: tool({
+    description: "List files and directories in an authorized GitHub repository, optionally at a branch, tag, or commit.",
+    inputSchema: z.object({
+      repository: z.string().describe("GitHub repository in owner/name format."),
+      ref: z.string().optional().describe("Branch, tag, or commit SHA."),
+    }),
+    execute: async ({ repository, ref }) => {
+      const token = process.env.GITHUB_TOKEN;
+      if (!token) return { error: "GitHub is not configured. Set GITHUB_TOKEN on the server." };
+      const allowed = process.env.GITHUB_ALLOWED_REPOS?.split(",").map((v) => v.trim()).filter(Boolean);
+      if (allowed?.length && !allowed.includes(repository)) return { error: "Repository is not authorized." };
+      if (!/^[^/]+\\/[^/]+$/.test(repository)) return { error: "Repository must use owner/name format." };
+
+      const response = await fetch(`https://api.github.com/repos/${repository}/git/trees/${encodeURIComponent(ref || "HEAD")}?recursive=1`, {
+        headers: {
+          Accept: "application/vnd.github+json",
+          Authorization: `Bearer ${token}`,
+          "X-GitHub-Api-Version": "2026-03-10",
+        },
+        cache: "no-store",
+      });
+      const data = await response.json().catch(() => null);
+      if (!response.ok) return { error: data?.message || `GitHub tree request failed with HTTP ${response.status}.` };
+      return {
+        repository,
+        ref: ref || "HEAD",
+        truncated: Boolean(data?.truncated),
+        entries: (data?.tree || []).map((item: { path?: string; type?: string; size?: number }) => ({
+          path: item.path || "",
+          type: item.type || "unknown",
+          size: item.size ?? null,
+        })),
+      };
+    },
+  }),
+
   githubGetFile: tool({
     description: "Read a file or directory from an authorized GitHub repository. Use this when inspecting project code or repository structure.",
     inputSchema: z.object({
