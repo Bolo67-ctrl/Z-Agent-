@@ -2,6 +2,41 @@ import { convertToModelMessages, stepCountIs, streamText, tool } from "ai";
 import { z } from "zod";
 
 const tools = {
+  githubGetFile: tool({
+    description: "Read a file or directory from an authorized GitHub repository. Use this when inspecting project code or repository structure.",
+    inputSchema: z.object({
+      repository: z.string().describe("GitHub repository in owner/name format."),
+      path: z.string().describe("Repository-relative path. Use an empty string for the root."),
+      ref: z.string().optional().describe("Branch, tag, or commit SHA."),
+    }),
+    execute: async ({ repository, path, ref }) => {
+      const token = process.env.GITHUB_TOKEN;
+      if (!token) return { error: "GitHub is not configured. Set GITHUB_TOKEN on the server." };
+      const allowed = process.env.GITHUB_ALLOWED_REPOS?.split(",").map((v) => v.trim()).filter(Boolean);
+      if (allowed?.length && !allowed.includes(repository)) return { error: "Repository is not authorized." };
+      if (!/^[^/]+\\/[^/]+$/.test(repository)) return { error: "Repository must use owner/name format." };
+
+      const encodedPath = path.split("/").filter(Boolean).map(encodeURIComponent).join("/");
+      const query = ref ? `?ref=${encodeURIComponent(ref)}` : "";
+      const response = await fetch(`https://api.github.com/repos/${repository}/contents/${encodedPath}${query}`, {
+        headers: {
+          Accept: "application/vnd.github+json",
+          Authorization: `Bearer ${token}`,
+          "X-GitHub-Api-Version": "2026-03-10",
+        },
+        cache: "no-store",
+      });
+      const data = await response.json().catch(() => null);
+      if (!response.ok) return { error: data?.message || `GitHub request failed with HTTP ${response.status}.` };
+
+      if (Array.isArray(data)) {
+        return { type: "directory", repository, path, entries: data.map((item) => ({ name: item.name, path: item.path, type: item.type })) };
+      }
+      if (data?.type !== "file") return { repository, path, type: data?.type ?? "unknown" };
+      return { repository, path, sha: data.sha, content: Buffer.from(data.content || "", "base64").toString("utf8") };
+    },
+  }),
+
   webSearch: tool({
     description:
       "Search the live web for current, changing, niche, or source-sensitive information. Use this before answering questions where up-to-date sources matter.",
