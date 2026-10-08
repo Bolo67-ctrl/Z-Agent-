@@ -38,6 +38,48 @@ const tools = {
     },
   }),
 
+  githubPrepareChange: tool({
+    description: "Prepare a proposed GitHub file change without writing it. Returns the current file SHA and the proposed replacement so a human can review it before any external change.",
+    inputSchema: z.object({
+      repository: z.string().describe("GitHub repository in owner/name format."),
+      path: z.string().describe("Repository-relative file path."),
+      proposedContent: z.string().describe("Complete proposed replacement contents."),
+      branch: z.string().optional().describe("Branch to review against."),
+    }),
+    execute: async ({ repository, path, proposedContent, branch }) => {
+      const token = process.env.GITHUB_TOKEN;
+      if (!token) return { error: "GitHub is not configured. Set GITHUB_TOKEN on the server." };
+      const allowed = process.env.GITHUB_ALLOWED_REPOS?.split(",").map((v) => v.trim()).filter(Boolean);
+      if (allowed?.length && !allowed.includes(repository)) return { error: "Repository is not authorized." };
+      if (!/^[^/]+\\/[^/]+$/.test(repository)) return { error: "Repository must use owner/name format." };
+
+      const encodedPath = path.split("/").filter(Boolean).map(encodeURIComponent).join("/");
+      const query = branch ? `?ref=${encodeURIComponent(branch)}` : "";
+      const response = await fetch(`https://api.github.com/repos/${repository}/contents/${encodedPath}${query}`, {
+        headers: {
+          Accept: "application/vnd.github+json",
+          Authorization: `Bearer ${token}`,
+          "X-GitHub-Api-Version": "2026-03-10",
+        },
+        cache: "no-store",
+      });
+      const data = await response.json().catch(() => null);
+      if (!response.ok) return { error: data?.message || `GitHub read failed with HTTP ${response.status}.` };
+      if (data?.type !== "file") return { error: "The target path is not a file." };
+
+      const currentContent = Buffer.from(data.content || "", "base64").toString("utf8");
+      return {
+        repository,
+        path,
+        branch: branch || "default",
+        currentSha: data.sha,
+        changed: currentContent !== proposedContent,
+        currentContent,
+        proposedContent,
+      };
+    },
+  }),
+
   githubGetFile: tool({
     description: "Read a file or directory from an authorized GitHub repository. Use this when inspecting project code or repository structure.",
     inputSchema: z.object({
