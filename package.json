@@ -14,7 +14,8 @@
     "react-dom": "latest",
     "ai": "latest",
     "@ai-sdk/react": "latest",
-    "zod": "latest"
+    "zod": "latest",
+    "@exalabs/ai-sdk": "latest"
   },
   "devDependencies": {
     "@types/node": "latest",
