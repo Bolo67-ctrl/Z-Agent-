@@ -15,7 +15,9 @@
     "ai": "latest",
     "@ai-sdk/react": "latest",
     "zod": "latest",
-    "@exalabs/ai-sdk": "latest"
+    "@exalabs/ai-sdk": "latest",
+    "@supabase/ssr": "latest",
+    "@supabase/supabase-js": "latest"
   },
   "devDependencies": {
     "@types/node": "latest",
