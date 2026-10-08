@@ -3,6 +3,43 @@ import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
 
 const tools = {
+  memorySearch: tool({
+    description: "Search the user's persistent memories for relevant past context. Use this when earlier conversations, preferences, projects, or decisions may matter.",
+    inputSchema: z.object({
+      query: z.string().min(2).describe("Short description of the past context you need."),
+      limit: z.number().int().min(1).max(8).optional().describe("Maximum number of relevant memories to return."),
+    }),
+    execute: async ({ query, limit = 5 }) => {
+      const supabase = await createClient();
+      const { data: userData } = await supabase.auth.getUser();
+      const user = userData.user;
+      if (!user) return { error: "Z-Agent identity is not ready." };
+
+      const { data: memories, error } = await supabase
+        .from("agent_memories")
+        .select("kind, content, created_at")
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: false })
+        .limit(100);
+
+      if (error) return { error: error.message };
+
+      const terms = query.toLowerCase().split(/[^a-z0-9]+/).filter((term) => term.length >= 3);
+      const scored = (memories ?? [])
+        .map((memory) => {
+          const haystack = memory.content.toLowerCase();
+          const score = terms.reduce((total, term) => total + (haystack.includes(term) ? 1 : 0), 0);
+          return { ...memory, score };
+        })
+        .filter((memory) => memory.score > 0)
+        .sort((a, b) => b.score - a.score || b.created_at.localeCompare(a.created_at))
+        .slice(0, limit)
+        .map(({ score, ...memory }) => memory);
+
+      return { query, memories: scored };
+    },
+  }),
+
   githubListTree: tool({
     description: "List files and directories in an authorized GitHub repository, optionally at a branch, tag, or commit.",
     inputSchema: z.object({
