@@ -311,15 +311,6 @@ export async function POST(req: Request) {
     tools,
     stopWhen: stepCountIs(5),
     messages: modelMessages,
-    onFinish: async ({ text }) => {
-      if (!text.trim()) return;
-
-      await supabase.from("agent_memories").insert({
-        user_id: user.id,
-        kind: "assistant_message",
-        content: text.slice(0, 12000),
-      });
-    },
   });
 
   return result.toUIMessageStreamResponse();
