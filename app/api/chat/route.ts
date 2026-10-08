@@ -1,9 +1,59 @@
 import { convertToModelMessages, stepCountIs, streamText, tool } from "ai";
-import { webSearch } from "@exalabs/ai-sdk";
 import { z } from "zod";
 
 const tools = {
-  webSearch: webSearch(),
+  webSearch: tool({
+    description:
+      "Search the live web for current, changing, niche, or source-sensitive information. Use this before answering questions where up-to-date sources matter.",
+    inputSchema: z.object({
+      query: z.string().min(2).describe("A focused web search query."),
+      numResults: z.number().int().min(1).max(8).optional().describe("Number of results to return."),
+    }),
+    execute: async ({ query, numResults = 5 }) => {
+      const apiKey = process.env.EXA_API_KEY;
+      if (!apiKey) {
+        return { error: "Web search is not configured. Set EXA_API_KEY on the server." };
+      }
+
+      const response = await fetch("https://api.exa.ai/search", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-api-key": apiKey,
+        },
+        body: JSON.stringify({
+          query,
+          numResults,
+          contents: { text: { maxCharacters: 6000 } },
+        }),
+        cache: "no-store",
+      });
+
+      if (!response.ok) {
+        return { error: `Web search failed with HTTP ${response.status}.` };
+      }
+
+      const data = (await response.json()) as {
+        results?: Array<{
+          title?: string;
+          url?: string;
+          publishedDate?: string;
+          text?: string;
+        }>;
+      };
+
+      return {
+        query,
+        results: (data.results ?? []).map((item) => ({
+          title: item.title ?? "",
+          url: item.url ?? "",
+          publishedDate: item.publishedDate ?? null,
+          text: item.text ?? "",
+        })),
+      };
+    },
+  }),
+
   getCurrentTime: tool({
     description: "Get the current date and time. Use this when the user asks what time or date it is.",
     inputSchema: z.object({
@@ -22,6 +72,7 @@ const tools = {
       };
     },
   }),
+
   calculator: tool({
     description: "Calculate a basic arithmetic expression. Use this for numerical calculations instead of mental arithmetic.",
     inputSchema: z.object({
