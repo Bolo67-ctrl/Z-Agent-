@@ -1,4 +1,5 @@
 import { generateText } from "ai";
+import { GEMINI_MODEL, gemini } from "@/lib/ai";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -53,7 +54,7 @@ async function whatsappRequest(path: string, init: RequestInit = {}) {
 
 async function makeReply(message: string) {
   const { text } = await generateText({
-    model: "openai/gpt-5.5",
+    model: gemini(GEMINI_MODEL),
     system:
       "You are Jarvis, a helpful personal AI assistant speaking with your owner in a private WhatsApp agent chat. " +
       "Be warm, concise, and useful. You can answer questions and help plan tasks, but do not claim to have completed actions, " +
@@ -67,11 +68,11 @@ async function makeReply(message: string) {
 
 /**
  * Vercel Cron calls this endpoint to poll WhatsApp Agent Platform updates.
- * Configure WHATSAPP_AGENT_API_TOKEN, CRON_SECRET, and AI_GATEWAY_API_KEY in Vercel.
+ * Configure WHATSAPP_AGENT_API_TOKEN, CRON_SECRET, and GEMINI_API_KEY in Vercel.
  */
 export async function GET(request: Request) {
   if (!authorized(request)) return jsonError("Unauthorized.", 401);
-  if (!process.env.AI_GATEWAY_API_KEY) return jsonError("AI_GATEWAY_API_KEY is not configured.", 503);
+  if (!process.env.GEMINI_API_KEY) return jsonError("GEMINI_API_KEY is not configured.", 503);
   if (!process.env.WHATSAPP_AGENT_API_TOKEN) return jsonError("WHATSAPP_AGENT_API_TOKEN is not configured.", 503);
 
   try {
