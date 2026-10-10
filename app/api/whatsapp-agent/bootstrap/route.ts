@@ -2,7 +2,7 @@ import { createClient } from "@supabase/supabase-js";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 15;
+export const maxDuration = 30;
 
 const API_BASE = "https://api.whatsapp.com/agent/v1";
 
@@ -43,11 +43,23 @@ export async function POST(request: Request) {
       return Response.json({ ok: false, alreadyInitialized: true, message: "The cursor is already initialized. No WhatsApp request was made." }, { status: 409 });
     }
 
-    // Omitting offset asks the provider for the current head; messages are not inspected, processed, or acknowledged here.
-    const response = await fetch(`${API_BASE}/updates?limit=50&timeout=0`, {
+    // With no offset, WhatsApp anchors this long poll at the current head. The user can send one
+    // harmless message while it waits; we use only next_offset and never inspect or process the message.
+    const response = await fetch(`${API_BASE}/updates?limit=50&timeout=25`, {
       headers: { Authorization: `Bearer ${whatsappToken}`, Accept: "application/json" },
       cache: "no-store",
     });
+
+    if (response.status === 204) {
+      return Response.json({
+        ok: false,
+        waitingForUpdate: true,
+        cursorInitialized: false,
+        messagesProcessed: 0,
+        repliesSent: 0,
+        message: "No new update arrived during the 25-second wait, so the database cursor is unchanged. No messages were processed, marked read, or replied to. To initialize, try once more and immediately send a harmless message to Jarvis while this button says Initializing.",
+      }, { status: 409 });
+    }
 
     if (!response.ok) {
       return Response.json({ ok: false, error: `WhatsApp offset lookup returned HTTP ${response.status}. No messages were processed or sent.` }, { status: 502 });
