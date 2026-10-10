@@ -298,6 +298,13 @@ function textFromModelMessage(message: { role: string; content?: unknown }) {
 }
 
 export async function POST(req: Request) {
+  if (!process.env.GEMINI_API_KEY) {
+    return Response.json(
+      { error: "AI is not configured yet. Add GEMINI_API_KEY to the Vercel environment variables and redeploy." },
+      { status: 503 },
+    );
+  }
+
   const { messages } = await req.json();
   const supabase = await createClient();
   const { data: userData } = await supabase.auth.getUser();
@@ -310,12 +317,6 @@ export async function POST(req: Request) {
     );
   }
 
-  if (!process.env.GEMINI_API_KEY) {
-    return Response.json(
-      { error: "AI is not configured yet. Add GEMINI_API_KEY to the Vercel environment variables and redeploy." },
-      { status: 503 },
-    );
-  }
 
   const modelMessages = await convertToModelMessages(messages);
   const latestUserMessage = [...modelMessages].reverse().find((message) => message.role === "user");
@@ -324,7 +325,15 @@ export async function POST(req: Request) {
 
   const result = streamText({
     model: gemini(GEMINI_MODEL),
-    abortSignal: AbortSignal.timeout(50_000),
+    maxRetries: 0,
+    providerOptions: {
+      google: {
+        thinkingConfig: {
+          thinkingLevel: "low",
+        },
+      },
+    },
+    abortSignal: AbortSignal.timeout(40_000),
     onError({ error }) {
       logModelError(error);
     },
