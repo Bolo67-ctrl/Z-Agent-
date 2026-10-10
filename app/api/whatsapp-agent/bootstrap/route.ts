@@ -14,7 +14,7 @@ async function fetchUpdates(token: string, path: string) {
   return fetch(`${API_BASE}${path}`, {
     headers: { Authorization: `Bearer ${token}`, Accept: "application/json" },
     cache: "no-store",
-    signal: AbortSignal.timeout(12000),
+    signal: AbortSignal.timeout(path.includes("timeout=25") ? 28000 : 12000),
   });
 }
 
@@ -70,8 +70,69 @@ export async function POST(request: Request) {
       );
 
       if (response.status === 204) {
-        drained = lastNextOffset !== null;
-        break;
+        if (lastNextOffset !== null) {
+          drained = true;
+          break;
+        }
+
+        // The retained buffer was empty. Wait for one new update so the API can return
+        // a valid next_offset; never inspect its content or send a reply.
+        const firstEvent = await fetchUpdates(whatsappToken, "/updates?limit=100&timeout=25");
+        if (firstEvent.status === 204) {
+          return Response.json({
+            ok: false,
+            waitingForUpdate: true,
+            cursorInitialized: false,
+            messagesProcessed: 0,
+            repliesSent: 0,
+            message: "No new update arrived during the wait, so the database cursor is unchanged. No messages were processed, marked read, or replied to. Retry once when ready and immediately send a harmless message to Jarvis while the button says Initializing.",
+          }, { status: 409 });
+        }
+        if (!firstEvent.ok) {
+          return Response.json({
+            ok: false,
+            error: `WhatsApp starting-offset lookup returned HTTP ${firstEvent.status}. The database cursor is unchanged; no messages were processed or replied to.`,
+          }, { status: 502 });
+        }
+
+        let firstUpdate: UpdatePage | null = null;
+        try {
+          firstUpdate = await firstEvent.json() as UpdatePage;
+        } catch {
+          firstUpdate = null;
+        }
+        const firstNextOffset = Number(firstUpdate?.next_offset);
+        if (!Number.isSafeInteger(firstNextOffset) || firstNextOffset < 0) {
+          return Response.json({
+            ok: false,
+            error: "WhatsApp did not provide a valid next_offset. The database cursor is unchanged; no messages were processed, marked read, or replied to.",
+          }, { status: 502 });
+        }
+
+        // Store this first new-event cursor only if the buffer was empty and a new event arrived.
+        const firstSave = await db
+          .from("whatsapp_agent_poll_state")
+          .update({ next_offset: firstNextOffset, updated_at: new Date().toISOString() })
+          .eq("id", "default")
+          .is("next_offset", null)
+          .select("id")
+          .maybeSingle();
+
+        if (firstSave.error || !firstSave.data) {
+          return Response.json({
+            ok: false,
+            error: "The cursor was not saved. Check database status before doing anything else.",
+          }, { status: 409 });
+        }
+
+        return Response.json({
+          ok: true,
+          cursorInitialized: true,
+          pagesRead: 0,
+          messagesProcessed: 0,
+          repliesSent: 0,
+          message: "A new update established the starting offset. Its content was not inspected, processed, marked read, or replied to.",
+        });
       }
       if (!response.ok) {
         return Response.json({
