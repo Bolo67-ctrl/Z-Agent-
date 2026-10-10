@@ -67,7 +67,7 @@ async function makeReply(message: string) {
 
 /**
  * Vercel Cron calls this endpoint to poll WhatsApp Agent Platform updates.
- * Configure WHATSAPP_AGENT_API_TOKEN and WHATSAPP_AGENT_CRON_SECRET in Vercel.
+ * Configure WHATSAPP_AGENT_API_TOKEN, CRON_SECRET, and AI_GATEWAY_API_KEY in Vercel.
  */
 export async function GET(request: Request) {
   if (!authorized(request)) return jsonError("Unauthorized.", 401);
@@ -92,7 +92,7 @@ export async function GET(request: Request) {
       const text = typeof message.text?.body === "string" ? message.text.body.trim() : "";
 
       // The documented recipient identifier must be used exactly as received.
-      if (!recipient || message.type !== "text" || !text) {
+      // Only answer human user IDs. Ignore agent IDs and any unknown sender format to prevent loops.\n      if (!recipient.startsWith("user:") || message.type !== "text" || !text) {
         skipped += 1;
         continue;
       }
