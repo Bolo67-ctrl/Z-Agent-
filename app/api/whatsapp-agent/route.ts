@@ -32,6 +32,13 @@ async function whatsappRequest(path: string, init: RequestInit = {}) {
   const token = process.env.WHATSAPP_AGENT_API_TOKEN;
   if (!token) throw new Error("WHATSAPP_AGENT_API_TOKEN is not configured.");
 
+  // Bound upstream calls so they return control before the Vercel function deadline.
+  // A /messages timeout is ambiguous; its durable pre-send lock remains terminal.
+  const timeoutMs = path.startsWith("/updates")
+    ? (path.includes("timeout=5") ? 7500 : 6000)
+    : path === "/messages"
+      ? 6000
+      : 3000;
   const response = await fetch(`${API_BASE}${path}`, {
     ...init,
     headers: {
@@ -40,6 +47,7 @@ async function whatsappRequest(path: string, init: RequestInit = {}) {
       ...init.headers,
     },
     cache: "no-store",
+    signal: init.signal ?? AbortSignal.timeout(timeoutMs),
   });
 
   const body = await response.text();
@@ -276,6 +284,8 @@ async function productionPoll() {
 
 async function makeReply(message: string) {
   const { text } = await generateText({
+    // Keep AI generation bounded so the route can persist state and respond safely.
+    abortSignal: AbortSignal.timeout(10000),
     model: gemini(GEMINI_MODEL),
     system:
       "You are Jarvis, a helpful personal AI assistant speaking with your owner in a private WhatsApp agent chat. " +
