@@ -6,6 +6,9 @@ export const maxDuration = 30;
 
 const API_BASE = "https://api.whatsapp.com/agent/v1";
 const MAX_REPLY_LENGTH = 4000;
+// In test mode, process only this unique, explicitly sent message.
+const WHATSAPP_TEST_MESSAGE =
+  "ZAGENT PREVIEW TEST 8f2d41. Reply with exactly: WHATSAPP TEST SUCCESSFUL.";
 
 type AgentMessage = {
   from?: string;
@@ -67,13 +70,16 @@ async function makeReply(message: string) {
 }
 
 /**
- * Vercel Cron calls this endpoint to poll WhatsApp Agent Platform updates.
+ * Polls WhatsApp Agent Platform updates.
  * Configure WHATSAPP_AGENT_API_TOKEN, CRON_SECRET, and GEMINI_API_KEY in Vercel.
+ * Set WHATSAPP_TEST_MODE=true in Preview to process only the unique test message below.
  */
 export async function GET(request: Request) {
   if (!authorized(request)) return jsonError("Unauthorized.", 401);
   if (!process.env.GEMINI_API_KEY) return jsonError("GEMINI_API_KEY is not configured.", 503);
   if (!process.env.WHATSAPP_AGENT_API_TOKEN) return jsonError("WHATSAPP_AGENT_API_TOKEN is not configured.", 503);
+
+  const testMode = process.env.WHATSAPP_TEST_MODE === "true";
 
   try {
     // Keep the long poll short so the scheduled function can finish within its runtime limit.
@@ -92,9 +98,15 @@ export async function GET(request: Request) {
       const recipient = typeof message.from === "string" ? message.from : "";
       const text = typeof message.text?.body === "string" ? message.text.body.trim() : "";
 
-      // The documented recipient identifier must be used exactly as received.
-      // Only answer human user IDs. Ignore agent IDs and unknown sender formats to prevent loops.
+      // Never reply to agent IDs, non-text messages, or empty messages.
       if (!recipient.startsWith("user:") || message.type !== "text" || !text) {
+        skipped += 1;
+        continue;
+      }
+
+      // While testing, fail closed: ignore every message except the unique test phrase.
+      // This prevents queued unread messages from receiving an AI reply during validation.
+      if (testMode && text !== WHATSAPP_TEST_MESSAGE) {
         skipped += 1;
         continue;
       }
