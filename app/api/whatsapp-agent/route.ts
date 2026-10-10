@@ -17,7 +17,7 @@ function jsonError(message: string, status: number) {
 }
 
 function authorized(request: Request) {
-  const secret = process.env.WHATSAPP_AGENT_CRON_SECRET;
+  const secret = process.env.CRON_SECRET;
   if (!secret) return false;
   return request.headers.get("authorization") === `Bearer ${secret}`;
 }
