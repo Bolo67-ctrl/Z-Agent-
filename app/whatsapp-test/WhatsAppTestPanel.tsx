@@ -161,7 +161,7 @@ export default function WhatsAppTestPanel() {
       <section style={{ border: "1px solid #d4d4d4", borderRadius: 12, padding: 16, margin: "20px 0" }}>
         <p style={{ fontSize: 12, fontWeight: 700, color: "#525252", marginTop: 0 }}>2 · Initialize the starting offset (one-time, no replies)</p>
         <p style={{ lineHeight: 1.55 }}>
-          This waits up to 25 seconds for a new WhatsApp update and saves only its starting offset. Click the button, then immediately send one harmless message to Jarvis while it says “Initializing…”. This setup request will not inspect, process, mark read, or reply to that message. If no update arrives and it reports HTTP 409, the cursor stays unchanged and you can retry when ready.
+          This starts at offset 0 and safely advances through the existing update buffer using only next_offset metadata. It does not inspect message contents, process messages, mark them read, or reply. If the buffer is empty, it waits up to 25 seconds for a new update; only then should you send a harmless message to Jarvis while it says “Initializing…”.
         </p>
         <form onSubmit={initializeCursor} style={{ display: "flex", flexDirection: "column", gap: 10 }}>
           <label htmlFor="bootstrap-cron-secret" style={{ fontSize: 14, fontWeight: 600 }}>Preview CRON_SECRET</label>
@@ -194,8 +194,8 @@ export default function WhatsAppTestPanel() {
             <pre style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere", fontSize: 13, lineHeight: 1.5 }}>{JSON.stringify(bootstrapResult.body, null, 2)}</pre>
             {bootstrapDone ? (
               <p style={{ marginBottom: 0, fontWeight: 600 }}>Starting offset saved. Do not initialize again, and do not run the poll yet.</p>
-            ) : (bootstrapResult.body as { waitingForUpdate?: boolean } | null)?.waitingForUpdate ? (
-              <p style={{ marginBottom: 0 }}>No new event arrived during the wait. The cursor was not changed. You may retry once when ready, and send a harmless message immediately after clicking Initialize.</p>
+            ) : (bootstrapResult.body as { needsReview?: boolean } | null)?.needsReview ? (
+              <p style={{ marginBottom: 0 }}>The backlog exceeds the safe automatic page limit. The cursor was not changed. Stop here and review before retrying.</p>
             ) : (
               <p style={{ marginBottom: 0 }}>For any other error, do not keep retrying. Verify database status first.</p>
             )}
