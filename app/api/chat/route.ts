@@ -3,10 +3,10 @@ import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
 
-const huggingFace = createOpenAICompatible({
-  name: "huggingface",
-  apiKey: process.env.HF_TOKEN,
-  baseURL: "https://router.huggingface.co/v1",
+const mistral = createOpenAICompatible({
+  name: "mistral",
+  apiKey: process.env.MISTRAL_API_KEY,
+  baseURL: "https://api.mistral.ai/v1",
 });
 
 const tools = {
@@ -301,9 +301,9 @@ export async function POST(req: Request) {
     );
   }
 
-  if (!process.env.HF_TOKEN) {
+  if (!process.env.MISTRAL_API_KEY) {
     return Response.json(
-      { error: "AI is not configured yet. Add HF_TOKEN to the Vercel project environment variables and redeploy." },
+      { error: "AI is not configured yet. Add MISTRAL_API_KEY to the Vercel Preview environment variables and redeploy." },
       { status: 503 },
     );
   }
@@ -314,7 +314,7 @@ export async function POST(req: Request) {
 
 
   const result = streamText({
-    model: huggingFace("openai/gpt-oss-120b:cerebras"),
+    model: mistral("mistral-small-latest"),
     system:
       "You are Z-Agent, a capable general-purpose AI agent. Be helpful, clear, and honest. " +
       "Use tools when they improve accuracy. Use webSearch for current, changing, niche, or source-sensitive information. " +
