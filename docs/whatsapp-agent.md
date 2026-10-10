@@ -9,6 +9,7 @@ This integration lets the deployed Z-Agent backend poll a WhatsApp third-party a
 - `GEMINI_API_KEY`: the Google Gemini API key used by both website chat and WhatsApp replies. Create it in [Google AI Studio](https://aistudio.google.com/app/apikey).
 - `GEMINI_MODEL` (optional): Gemini model ID. Defaults to `gemini-3.8-flash`.
 - `SUPABASE_SERVICE_ROLE_KEY`: required only for normal (non-test) WhatsApp polling. Add it as a **server-only sensitive** Vercel variable; never use the publishable key for the poller's database writes.
+- `WHATSAPP_NORMAL_MODE_ENABLED`: must be set to the literal `true` before normal replies can run. Leave it unset during Preview safety testing; disabling `WHATSAPP_TEST_MODE` alone will not enable regular replies.
 
 Never commit real credentials to GitHub or expose them in client-side code.
 
@@ -17,7 +18,7 @@ Never commit real credentials to GitHub or expose them in client-side code.
 1. Deploy the `whatsapp-agent-platform` branch to Vercel as a Preview, or merge it after reviewing the changes.
 2. Apply `supabase/migrations/20261010000000_whatsapp_agent_reliability.sql` to the intended Supabase project (for example, paste it into the Supabase SQL Editor and run it). It creates a polling cursor table, a message-id deduplication table, and a restricted claim function. Message text is not stored.
 3. Add `WHATSAPP_AGENT_API_TOKEN`, `CRON_SECRET`, and `GEMINI_API_KEY` to Vercel. Add `SUPABASE_SERVICE_ROLE_KEY` as a sensitive server-only variable for Preview first; never prefix it with `NEXT_PUBLIC_`. Optionally set `GEMINI_MODEL`, then redeploy Preview.
-4. Before turning off test mode, review the Preview database setup and test only with a newly sent message. The first normal-mode poll bootstraps its cursor and intentionally skips messages already queued at that point, so it does not auto-reply to historical chats.
+4. Keep `WHATSAPP_TEST_MODE=true` and leave `WHATSAPP_NORMAL_MODE_ENABLED` unset during safety testing. Normal replies require both disabling test mode and separately setting `WHATSAPP_NORMAL_MODE_ENABLED=true`. Before enabling normal mode, review the Preview database setup and plan a controlled bootstrap; the first normal-mode poll intentionally skips messages already queued at that point, so it does not auto-reply to historical chats.
 5. Only after Preview behavior is verified, configure GitHub Actions with a `CRON_SECRET` secret and a `WHATSAPP_AGENT_URL` variable for that same Preview deployment. The workflow at `.github/workflows/whatsapp-agent-poll.yml` is scheduled every five minutes when installed on the default branch; do not point it at Production until separately reviewed.
 
 The endpoint requires the `Authorization: Bearer <CRON_SECRET>` header. Do not make the route public by removing this check.
