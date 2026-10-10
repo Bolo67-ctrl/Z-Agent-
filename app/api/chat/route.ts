@@ -74,7 +74,7 @@ const tools = {
       if (!token) return { error: "GitHub is not configured. Set GITHUB_TOKEN on the server." };
       const allowed = process.env.GITHUB_ALLOWED_REPOS?.split(",").map((v) => v.trim()).filter(Boolean);
       if (allowed?.length && !allowed.includes(repository)) return { error: "Repository is not authorized." };
-      if (!/^[^/]+\\/[^/]+$/.test(repository)) return { error: "Repository must use owner/name format." };
+      if (!/^[^/]+\/[^/]+$/.test(repository)) return { error: "Repository must use owner/name format." };
 
       const response = await fetch(`https://api.github.com/repos/${repository}/git/trees/${encodeURIComponent(ref || "HEAD")}?recursive=1`, {
         headers: {
