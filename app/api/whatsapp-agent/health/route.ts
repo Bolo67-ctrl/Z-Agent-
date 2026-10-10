@@ -33,7 +33,10 @@ export async function GET(request: Request) {
         .select("id, next_offset")
         .eq("id", "default")
         .maybeSingle(),
-      db.from("whatsapp_agent_messages").select("message_id").limit(1),
+      db.from("whatsapp_agent_messages")
+        .select("status, created_at, updated_at, lease_until")
+        .order("created_at", { ascending: false })
+        .limit(5),
       // Empty ID exits the SQL function before any insert; this checks function availability without writing.
       db.rpc("claim_whatsapp_agent_message", {
         p_message_id: "",
@@ -59,6 +62,15 @@ export async function GET(request: Request) {
     return Response.json({
       ok,
       checks,
+      // Status-only diagnostic for the most recent dedup rows. Never return message IDs,
+      // sender identities, or message contents. This helps distinguish timeout stages
+      // without polling WhatsApp or writing to the database.
+      recentMessageStates: (messages.data ?? []).map((row) => ({
+        status: row.status,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+        leaseUntil: row.lease_until,
+      })),
       message: ok
         ? "Database setup verified. No WhatsApp poll was made and no message was sent."
         : "Database setup is incomplete. No WhatsApp poll was made and no message was sent.",
