@@ -9,7 +9,7 @@ const API_BASE = "https://api.whatsapp.com/agent/v1";
 const MAX_REPLY_LENGTH = 4000;
 // In test mode, process only this unique, explicitly sent message.
 const WHATSAPP_TEST_MESSAGE =
-  "ZAGENT PREVIEW TEST 8f2d41. Reply with exactly: WHATSAPP TEST SUCCESSFUL.";
+  "ZAGENT PREVIEW TEST d91c6e. Reply with exactly: WHATSAPP TEST SUCCESSFUL.";
 
 type AgentMessage = {
   id?: string;
@@ -167,8 +167,23 @@ async function productionPoll() {
         break;
       }
       if (claim.data !== true) {
-        skipped += 1;
-        continue;
+        const prior = await db
+          .from("whatsapp_agent_messages")
+          .select("status, lease_until")
+          .eq("message_id", messageId)
+          .maybeSingle();
+        if (prior.error || !prior.data) {
+          errors.push("Could not verify the prior processing state; the cursor was held to avoid losing a message.");
+          break;
+        }
+        if (prior.data.status === "sent" || prior.data.status === "uncertain") {
+          // A sent or ambiguous send is terminal: never let a replay send it again.
+          skipped += 1;
+          continue;
+        }
+        // An active claim (or unexpected state) must not be treated as already handled.
+        errors.push("This message is already claimed or in an unexpected state; the cursor was held for a safe retry.");
+        break;
       }
 
       let reply = "";
@@ -184,6 +199,20 @@ async function productionPoll() {
         continue;
       }
 
+      // Persist a one-way send lock BEFORE calling the external API. If delivery or the
+      // subsequent DB write is ambiguous, this row remains terminal and cannot be resent.
+      const sendIntent = await db
+        .from("whatsapp_agent_messages")
+        .update({ status: "uncertain", lease_until: null, updated_at: new Date().toISOString() })
+        .eq("message_id", messageId)
+        .eq("status", "processing")
+        .select("message_id")
+        .maybeSingle();
+      if (sendIntent.error || !sendIntent.data) {
+        errors.push("Could not reserve this message in the database before sending; no WhatsApp reply was attempted.");
+        break;
+      }
+
       try {
         await whatsappRequest("/messages", {
           method: "POST",
@@ -195,23 +224,22 @@ async function productionPoll() {
           }),
         });
       } catch {
-        // A dropped connection can make delivery ambiguous. Do not auto-send it again.
-        await db
-          .from("whatsapp_agent_messages")
-          .update({ status: "uncertain", lease_until: null, updated_at: new Date().toISOString() })
-          .eq("message_id", messageId);
-        errors.push("WhatsApp reply delivery is uncertain; automatic retry was blocked to avoid a duplicate.");
-        continue;
+        // The durable uncertain lock was written before this request; never auto-resend it.
+        errors.push("WhatsApp reply delivery is uncertain; automatic resend is blocked to avoid duplicates.");
+        break;
       }
 
       const sentState = await db
         .from("whatsapp_agent_messages")
         .update({ status: "sent", lease_until: null, updated_at: new Date().toISOString() })
-        .eq("message_id", messageId);
-      if (sentState.error) {
-        // Do not advance the cursor after a successful send if its dedup record could not be saved.
-        errors.push("A reply was sent, but its deduplication state could not be saved.");
-        continue;
+        .eq("message_id", messageId)
+        .eq("status", "uncertain")
+        .select("message_id")
+        .maybeSingle();
+      if (sentState.error || !sentState.data) {
+        // The durable row is still uncertain, so a replay will not send this again.
+        errors.push("A reply may have been sent, but the state remains locked against automatic resend.");
+        break;
       }
 
       handled += 1;
@@ -286,6 +314,14 @@ export async function GET(request: Request) {
         : "/updates?limit=50&timeout=5"
     );
     const messages = extractMessages(updates);
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    if (!supabaseUrl || !serviceKey) {
+      return jsonError("Safe test replies require SUPABASE_SERVICE_ROLE_KEY so test messages can be deduplicated.", 503);
+    }
+    const db = createClient(supabaseUrl, serviceKey, {
+      auth: { persistSession: false, autoRefreshToken: false },
+    });
 
     let handled = 0;
     let skipped = 0;
@@ -308,13 +344,60 @@ export async function GET(request: Request) {
         continue;
       }
 
-      try {
-        const reply = await makeReply(text);
-        if (!reply) {
-          skipped += 1;
-          continue;
+      const claim = await db.rpc("claim_whatsapp_agent_message", {
+        p_message_id: messageId,
+        p_sender: recipient,
+        p_lease_seconds: 300,
+      });
+      if (claim.error) {
+        errors.push("Could not claim the test message for safe processing.");
+        break;
+      }
+      if (claim.data !== true) {
+        const prior = await db
+          .from("whatsapp_agent_messages")
+          .select("status")
+          .eq("message_id", messageId)
+          .maybeSingle();
+        if (prior.error || !prior.data) {
+          errors.push("Could not verify the test message state; no reply was sent.");
+          break;
         }
+        if (prior.data.status === "sent" || prior.data.status === "uncertain") {
+          skipped += 1;
+          break;
+        }
+        errors.push("The test message is already claimed or in an unexpected state; no reply was sent.");
+        break;
+      }
 
+      let reply = "";
+      try {
+        reply = await makeReply(text);
+        if (!reply) throw new Error("The AI returned an empty reply.");
+      } catch {
+        await db
+          .from("whatsapp_agent_messages")
+          .update({ status: "failed", lease_until: null, updated_at: new Date().toISOString() })
+          .eq("message_id", messageId);
+        errors.push("Test reply generation failed. The message was not sent.");
+        break;
+      }
+
+      // Commit the one-way send lock before touching the external messaging API.
+      const sendIntent = await db
+        .from("whatsapp_agent_messages")
+        .update({ status: "uncertain", lease_until: null, updated_at: new Date().toISOString() })
+        .eq("message_id", messageId)
+        .eq("status", "processing")
+        .select("message_id")
+        .maybeSingle();
+      if (sendIntent.error || !sendIntent.data) {
+        errors.push("Could not reserve the test message before sending; no reply was attempted.");
+        break;
+      }
+
+      try {
         await whatsappRequest("/messages", {
           method: "POST",
           body: JSON.stringify({
@@ -325,21 +408,38 @@ export async function GET(request: Request) {
           }),
         });
         handled += 1;
-        try {
-          await whatsappRequest("/statuses", {
-            method: "POST",
-            body: JSON.stringify({
-              messaging_product: "whatsapp",
-              status: "read",
-              message_id: messageId,
-            }),
-          });
-        } catch {
-          errors.push("Test reply was sent, but its read receipt failed; do not poll the test again.");
-        }
-      } catch (error) {
-        errors.push(error instanceof Error ? error.message : "Failed to process a message.");
+      } catch {
+        // The prior uncertain lock intentionally blocks retry after ambiguous delivery.
+        errors.push("Test reply delivery is uncertain; automatic resend is blocked to avoid duplicates.");
+        break;
       }
+
+      const sentState = await db
+        .from("whatsapp_agent_messages")
+        .update({ status: "sent", lease_until: null, updated_at: new Date().toISOString() })
+        .eq("message_id", messageId)
+        .eq("status", "uncertain")
+        .select("message_id")
+        .maybeSingle();
+      if (sentState.error || !sentState.data) {
+        errors.push("Test reply may have been sent, but the state remains locked against automatic resend.");
+        break;
+      }
+
+      try {
+        await whatsappRequest("/statuses", {
+          method: "POST",
+          body: JSON.stringify({
+            messaging_product: "whatsapp",
+            status: "read",
+            message_id: messageId,
+          }),
+        });
+      } catch {
+        errors.push("Test reply was sent, but its read receipt failed; the sent record prevents duplicate replies.");
+      }
+      // Handle at most one matching test message per request.
+      break;
     }
 
     return Response.json({ ok: errors.length === 0, received: messages.length, handled, skipped, errors });
