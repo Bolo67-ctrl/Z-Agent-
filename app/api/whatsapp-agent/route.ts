@@ -271,6 +271,10 @@ export async function GET(request: Request) {
   if (!process.env.WHATSAPP_AGENT_API_TOKEN) return jsonError("WHATSAPP_AGENT_API_TOKEN is not configured.", 503);
 
   const testMode = process.env.WHATSAPP_TEST_MODE === "true";
+  // Fail closed: disabling the test filter must not silently enable normal replies.
+  if (!testMode && process.env.WHATSAPP_NORMAL_MODE_ENABLED !== "true") {
+    return jsonError("Normal WhatsApp replies are disabled in this environment.", 503);
+  }
   if (!testMode) return productionPoll();
 
   try {
