@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport } from "ai";
 import { createClient } from "@/lib/supabase/client";
@@ -24,9 +24,15 @@ export default function Home() {
   const [input, setInput] = useState("");
   const [authReady, setAuthReady] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
+  const [requestError, setRequestError] = useState<string | null>(null);
+  const [requestTimedOut, setRequestTimedOut] = useState(false);
+  const requestStartedAt = useRef<number | null>(null);
 
-  const { messages, sendMessage, status, error } = useChat({
+  const { messages, sendMessage, status, error, stop } = useChat({
     transport: new DefaultChatTransport({ api: "/api/chat" }),
+    onError: (cause) => {
+      setRequestError(cause.message || "The AI request failed. Please try again.");
+    },
   });
 
   useEffect(() => {
@@ -54,11 +60,30 @@ export default function Home() {
   const busy = status === "submitted" || status === "streaming";
   const disabled = busy || !authReady;
 
+  useEffect(() => {
+    if (!busy) {
+      requestStartedAt.current = null;
+      return;
+    }
+
+    if (requestStartedAt.current === null) requestStartedAt.current = Date.now();
+    const elapsed = Date.now() - requestStartedAt.current;
+    const remaining = Math.max(0, 45_000 - elapsed);
+    const timer = window.setTimeout(() => {
+      setRequestTimedOut(true);
+      stop();
+    }, remaining);
+
+    return () => window.clearTimeout(timer);
+  }, [busy, stop]);
+
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const text = input.trim();
     if (!text || disabled) return;
     setInput("");
+    setRequestError(null);
+    setRequestTimedOut(false);
     await sendMessage({ text });
   }
 
@@ -107,8 +132,16 @@ export default function Home() {
             </article>
           ))
         )}
-        {busy ? <div className="working-indicator"><span className="pulse-dot" /> Z-Agent is working through the task…</div> : null}
-        {error ? <div className="error">{error.message}</div> : null}
+        {busy ? (
+          <div className="working-indicator">
+            <span className="pulse-dot" /> Z-Agent is working through the task…
+            <button type="button" onClick={() => stop()} className="stop-button">Stop</button>
+          </div>
+        ) : null}
+        {requestTimedOut ? (
+          <div className="error">This response took longer than 45 seconds, so it was stopped. Please try again. If it happens again, check the latest Vercel function logs.</div>
+        ) : null}
+        {requestError || error ? <div className="error">{requestError || error?.message}</div> : null}
       </section>
 
       <form className="composer" onSubmit={submit}>
