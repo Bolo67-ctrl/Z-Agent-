@@ -1,4 +1,5 @@
 import { generateText } from "ai";
+import { createClient } from "@supabase/supabase-js";
 import { GEMINI_MODEL, gemini } from "@/lib/ai";
 
 export const runtime = "nodejs";
@@ -11,6 +12,7 @@ const WHATSAPP_TEST_MESSAGE =
   "ZAGENT PREVIEW TEST 8f2d41. Reply with exactly: WHATSAPP TEST SUCCESSFUL.";
 
 type AgentMessage = {
+  id?: string;
   from?: string;
   type?: string;
   text?: { body?: string };
@@ -74,6 +76,176 @@ function extractMessages(update: any): AgentMessage[] {
   return messages;
 }
 
+async function productionPoll() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!supabaseUrl || !serviceKey) {
+    return jsonError("Production polling is disabled until SUPABASE_SERVICE_ROLE_KEY is configured for this environment.", 503);
+  }
+
+  const db = createClient(supabaseUrl, serviceKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+
+  try {
+    const stateResult = await db
+      .from("whatsapp_agent_poll_state")
+      .select("next_offset")
+      .eq("id", "default")
+      .maybeSingle();
+
+    if (stateResult.error || !stateResult.data) {
+      return jsonError("WhatsApp reliability tables are not ready. Apply the Supabase migration documented in docs/whatsapp-agent.md.", 503);
+    }
+
+    const cursor = stateResult.data.next_offset == null
+      ? null
+      : Number(stateResult.data.next_offset);
+    const path = cursor == null
+      ? "/updates?limit=50&timeout=0"
+      : "/updates?offset=" + encodeURIComponent(String(cursor)) + "&limit=50&timeout=5";
+    const updates = await whatsappRequest(path);
+
+    // HTTP 204 means no update arrived. Keep the current cursor and try later.
+    if (updates == null) {
+      return Response.json({
+        ok: true,
+        bootstrapPending: cursor == null,
+        received: 0,
+        handled: 0,
+        skipped: 0,
+        errors: [],
+      });
+    }
+
+    const messages = extractMessages(updates);
+    const nextOffset = Number(updates?.next_offset);
+    if (!Number.isSafeInteger(nextOffset) || nextOffset < 0) {
+      return jsonError("WhatsApp updates did not include a valid next_offset; no messages were processed.", 502);
+    }
+
+    // First run intentionally establishes a cursor without replying to historical queued chats.
+    if (cursor == null) {
+      const { error } = await db
+        .from("whatsapp_agent_poll_state")
+        .update({ next_offset: nextOffset, updated_at: new Date().toISOString() })
+        .eq("id", "default");
+      if (error) return jsonError("Could not save the WhatsApp bootstrap cursor.", 503);
+
+      return Response.json({
+        ok: true,
+        bootstrapped: true,
+        received: messages.length,
+        handled: 0,
+        skipped: messages.length,
+        errors: [],
+      });
+    }
+
+    let handled = 0;
+    let skipped = 0;
+    const errors: string[] = [];
+
+    for (const message of messages) {
+      const messageId = typeof message.id === "string" ? message.id : "";
+      const recipient = typeof message.from === "string" ? message.from : "";
+      const text = typeof message.text?.body === "string" ? message.text.body.trim() : "";
+
+      // Do not reply to unsupported or malformed messages. They are passed by the cursor.
+      if (!messageId || !recipient.startsWith("user:") || message.type !== "text" || !text) {
+        skipped += 1;
+        continue;
+      }
+
+      const claim = await db.rpc("claim_whatsapp_agent_message", {
+        p_message_id: messageId,
+        p_sender: recipient,
+        p_lease_seconds: 300,
+      });
+      if (claim.error) {
+        errors.push("Could not claim an inbound message for safe processing.");
+        break;
+      }
+      if (claim.data !== true) {
+        skipped += 1;
+        continue;
+      }
+
+      let reply = "";
+      try {
+        reply = await makeReply(text);
+        if (!reply) throw new Error("The AI returned an empty reply.");
+      } catch {
+        await db
+          .from("whatsapp_agent_messages")
+          .update({ status: "failed", lease_until: null, updated_at: new Date().toISOString() })
+          .eq("message_id", messageId);
+        errors.push("AI reply generation failed; the message is eligible for a later retry.");
+        continue;
+      }
+
+      try {
+        await whatsappRequest("/messages", {
+          method: "POST",
+          body: JSON.stringify({
+            messaging_product: "whatsapp",
+            to: recipient,
+            type: "text",
+            text: { body: reply },
+          }),
+        });
+      } catch {
+        // A dropped connection can make delivery ambiguous. Do not auto-send it again.
+        await db
+          .from("whatsapp_agent_messages")
+          .update({ status: "uncertain", lease_until: null, updated_at: new Date().toISOString() })
+          .eq("message_id", messageId);
+        errors.push("WhatsApp reply delivery is uncertain; automatic retry was blocked to avoid a duplicate.");
+        continue;
+      }
+
+      const sentState = await db
+        .from("whatsapp_agent_messages")
+        .update({ status: "sent", lease_until: null, updated_at: new Date().toISOString() })
+        .eq("message_id", messageId);
+      if (sentState.error) {
+        // Do not advance the cursor after a successful send if its dedup record could not be saved.
+        errors.push("A reply was sent, but its deduplication state could not be saved.");
+        continue;
+      }
+
+      handled += 1;
+      try {
+        await whatsappRequest("/statuses", {
+          method: "POST",
+          body: JSON.stringify({
+            messaging_product: "whatsapp",
+            status: "read",
+            message_id: messageId,
+          }),
+        });
+      } catch {
+        // Sending succeeded; a read receipt is best-effort and must not trigger a resend.
+        errors.push("Reply sent, but the read receipt could not be updated.");
+      }
+    }
+
+    // Persist the cursor only when every operation in this batch was accounted for.
+    // Replayed messages are guarded by the unique message_id claim.
+    if (errors.length === 0) {
+      const { error } = await db
+        .from("whatsapp_agent_poll_state")
+        .update({ next_offset: nextOffset, updated_at: new Date().toISOString() })
+        .eq("id", "default");
+      if (error) errors.push("Could not save the latest WhatsApp polling cursor.");
+    }
+
+    return Response.json({ ok: errors.length === 0, received: messages.length, handled, skipped, errors });
+  } catch {
+    return jsonError("WhatsApp polling failed. Check the server-side configuration and migration status.", 502);
+  }
+}
+
 async function makeReply(message: string) {
   const { text } = await generateText({
     model: gemini(GEMINI_MODEL),
@@ -99,6 +271,7 @@ export async function GET(request: Request) {
   if (!process.env.WHATSAPP_AGENT_API_TOKEN) return jsonError("WHATSAPP_AGENT_API_TOKEN is not configured.", 503);
 
   const testMode = process.env.WHATSAPP_TEST_MODE === "true";
+  if (!testMode) return productionPoll();
 
   try {
     // Test mode replays the retained buffer so the just-sent test phrase is visible.
