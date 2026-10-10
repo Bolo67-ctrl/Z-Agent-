@@ -1,0 +1,33 @@
+name: Poll WhatsApp Agent
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: whatsapp-agent-poll
+  cancel-in-progress: false
+
+jobs:
+  poll:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Poll Jarvis agent
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          AGENT_URL: ${{ vars.WHATSAPP_AGENT_URL }}
+        run: |
+          set -eu
+          if [ -z "${CRON_SECRET:-}" ]; then
+            echo "Missing GitHub Actions secret: CRON_SECRET"
+            exit 1
+          fi
+          if [ -z "${AGENT_URL:-}" ]; then
+            echo "Missing GitHub Actions variable: WHATSAPP_AGENT_URL"
+            exit 1
+          fi
+          curl --fail --silent --show-error --max-time 90 \
+            -H "Authorization: Bearer ${CRON_SECRET}" \
+            "${AGENT_URL%/}/api/whatsapp-agent"
