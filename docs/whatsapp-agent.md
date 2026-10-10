@@ -5,7 +5,7 @@ This integration lets the deployed Z-Agent backend poll a WhatsApp third-party a
 ## Required Vercel environment variables
 
 - `WHATSAPP_AGENT_API_TOKEN`: the API token shown in WhatsApp under the agent's Chat info > API key. Keep it secret.
-- `WHATSAPP_AGENT_CRON_SECRET`: a long random secret used to prevent public callers from triggering the poller.
+- `CRON_SECRET`: a long random secret used by Vercel Cron to authenticate scheduled requests. Vercel sends it as `Authorization: Bearer <CRON_SECRET>`.
 - `AI_GATEWAY_API_KEY`: the Vercel AI Gateway key used by the existing Z-Agent model configuration.
 
 Never commit real credentials to GitHub or expose them in client-side code.
@@ -17,7 +17,7 @@ Never commit real credentials to GitHub or expose them in client-side code.
 3. Ensure Vercel Cron is available for the project plan. The included `vercel.json` schedules `/api/whatsapp-agent` once per minute.
 4. Send a simple text message in the Jarvis agent chat and inspect the Vercel function logs for the cron invocation.
 
-The endpoint requires Vercel Cron's `Authorization: Bearer <CRON_SECRET>` header. Do not make the route public by removing this check.
+The endpoint requires Vercel Cron's `Authorization: Bearer <CRON_SECRET>` header, supplied when `CRON_SECRET` is configured. Do not make the route public by removing this check.
 
 ## Current limitations
 
