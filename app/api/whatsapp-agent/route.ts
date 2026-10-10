@@ -288,11 +288,12 @@ export async function GET(request: Request) {
     const errors: string[] = [];
 
     for (const message of messages) {
+      const messageId = typeof message.id === "string" ? message.id : "";
       const recipient = typeof message.from === "string" ? message.from : "";
       const text = typeof message.text?.body === "string" ? message.text.body.trim() : "";
 
-      // Never reply to agent IDs, non-text messages, or empty messages.
-      if (!recipient.startsWith("user:") || message.type !== "text" || !text) {
+      // Test messages need a provider message ID so they can be marked read after replying.
+      if (!messageId || !recipient.startsWith("user:") || message.type !== "text" || !text) {
         skipped += 1;
         continue;
       }
@@ -320,6 +321,18 @@ export async function GET(request: Request) {
           }),
         });
         handled += 1;
+        try {
+          await whatsappRequest("/statuses", {
+            method: "POST",
+            body: JSON.stringify({
+              messaging_product: "whatsapp",
+              status: "read",
+              message_id: messageId,
+            }),
+          });
+        } catch {
+          errors.push("Test reply was sent, but its read receipt failed; do not poll the test again.");
+        }
       } catch (error) {
         errors.push(error instanceof Error ? error.message : "Failed to process a message.");
       }
