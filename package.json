@@ -18,7 +18,7 @@
     "@exalabs/ai-sdk": "latest",
     "@supabase/ssr": "latest",
     "@supabase/supabase-js": "latest",
-    "@ai-sdk/google": "latest"
+    "@ai-sdk/google": "3.0.131"
   },
   "devDependencies": {
     "@types/node": "latest",
