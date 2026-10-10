@@ -19,6 +19,10 @@ export default function WhatsAppTestPanel() {
   const [healthSecret, setHealthSecret] = useState("");
   const [healthLoading, setHealthLoading] = useState(false);
   const [healthResult, setHealthResult] = useState<PollResult | null>(null);
+  const [bootstrapSecret, setBootstrapSecret] = useState("");
+  const [bootstrapLoading, setBootstrapLoading] = useState(false);
+  const [bootstrapDone, setBootstrapDone] = useState(false);
+  const [bootstrapResult, setBootstrapResult] = useState<PollResult | null>(null);
 
   async function verifyDatabase(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -43,6 +47,38 @@ export default function WhatsAppTestPanel() {
     } finally {
       setHealthSecret("");
       setHealthLoading(false);
+    }
+  }
+
+  async function initializeCursor(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const token = bootstrapSecret.trim();
+    if (!token || bootstrapLoading || bootstrapDone) return;
+
+    setBootstrapLoading(true);
+    setBootstrapResult(null);
+    try {
+      const response = await fetch("/api/whatsapp-agent/bootstrap", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: "application/json",
+        },
+        cache: "no-store",
+      });
+      const body: any = await response.json().catch(() => ({ error: "The endpoint returned a non-JSON response." }));
+      setBootstrapResult({ status: response.status, body });
+      if (response.ok && body?.cursorInitialized === true) {
+        setBootstrapDone(true);
+      }
+    } catch {
+      setBootstrapResult({
+        status: 0,
+        body: { error: "Connection was interrupted. Check database status before trying again." },
+      });
+    } finally {
+      setBootstrapSecret("");
+      setBootstrapLoading(false);
     }
   }
 
@@ -123,7 +159,50 @@ export default function WhatsAppTestPanel() {
       </section>
 
       <section style={{ border: "1px solid #d4d4d4", borderRadius: 12, padding: 16, margin: "20px 0" }}>
-        <p style={{ fontSize: 12, fontWeight: 700, color: "#525252", marginTop: 0 }}>1 · Send this exact message to your Jarvis agent chat</p>
+        <p style={{ fontSize: 12, fontWeight: 700, color: "#525252", marginTop: 0 }}>2 · Initialize the starting offset (one-time, no replies)</p>
+        <p style={{ lineHeight: 1.55 }}>
+          This makes one WhatsApp updates request to save the current starting offset. It does not process, mark read, or reply to any message. Do this only once.
+        </p>
+        <form onSubmit={initializeCursor} style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <label htmlFor="bootstrap-cron-secret" style={{ fontSize: 14, fontWeight: 600 }}>Preview CRON_SECRET</label>
+          <input
+            id="bootstrap-cron-secret"
+            type="password"
+            autoComplete="off"
+            value={bootstrapSecret}
+            onChange={event => setBootstrapSecret(event.target.value)}
+            placeholder="Paste your saved Preview secret"
+            disabled={bootstrapLoading || bootstrapDone}
+            style={{ border: "1px solid #a3a3a3", borderRadius: 8, padding: 12, fontSize: 16 }}
+          />
+          <button
+            type="submit"
+            disabled={bootstrapLoading || bootstrapDone || !bootstrapSecret.trim()}
+            style={{
+              border: 0, borderRadius: 8, padding: "12px 14px", fontSize: 15, fontWeight: 700,
+              background: bootstrapDone ? "#e5e5e5" : "#171717",
+              color: bootstrapDone ? "#525252" : "#ffffff",
+              cursor: bootstrapLoading || bootstrapDone || !bootstrapSecret.trim() ? "not-allowed" : "pointer",
+            }}
+          >
+            {bootstrapLoading ? "Initializing…" : bootstrapDone ? "Starting offset saved" : "Initialize cursor once"}
+          </button>
+        </form>
+        {bootstrapResult ? (
+          <div aria-live="polite" style={{ border: "1px solid #d4d4d4", borderRadius: 8, padding: 12, marginTop: 14 }}>
+            <h2 style={{ fontSize: 16, marginTop: 0 }}>Cursor initialization · HTTP {bootstrapResult.status || "network error"}</h2>
+            <pre style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere", fontSize: 13, lineHeight: 1.5 }}>{JSON.stringify(bootstrapResult.body, null, 2)}</pre>
+            {bootstrapDone ? (
+              <p style={{ marginBottom: 0, fontWeight: 600 }}>Starting offset saved. Do not initialize again, and do not run the poll yet.</p>
+            ) : (
+              <p style={{ marginBottom: 0 }}>Do not keep retrying after an ambiguous error. Check the database status first.</p>
+            )}
+          </div>
+        ) : null}
+      </section>
+
+      <section style={{ border: "1px solid #d4d4d4", borderRadius: 12, padding: 16, margin: "20px 0" }}>
+        <p style={{ fontSize: 12, fontWeight: 700, color: "#525252", marginTop: 0 }}>3 · Send this exact message to your Jarvis agent chat</p>
         <p style={{ overflowWrap: "anywhere", fontFamily: "ui-monospace, monospace", lineHeight: 1.5 }}>{TEST_MESSAGE}</p>
         <button
           type="button"
@@ -138,7 +217,7 @@ export default function WhatsAppTestPanel() {
       </section>
 
       <section style={{ border: "1px solid #d4d4d4", borderRadius: 12, padding: 16, margin: "20px 0" }}>
-        <p style={{ fontSize: 12, fontWeight: 700, color: "#525252", marginTop: 0 }}>2 · Run one authenticated poll (do not use this for the database check)</p>
+        <p style={{ fontSize: 12, fontWeight: 700, color: "#525252", marginTop: 0 }}>4 · Run one authenticated poll (do not use this for the database or cursor checks)</p>
         <p style={{ lineHeight: 1.55 }}>
           Enter the CRON_SECRET you saved for Preview. It is used only for this request and cleared from the input afterward. Do not share it in chat.
         </p>
