@@ -55,6 +55,25 @@ async function whatsappRequest(path: string, init: RequestInit = {}) {
   return data;
 }
 
+function extractMessages(update: any): AgentMessage[] {
+  if (Array.isArray(update?.messages)) return update.messages;
+  if (Array.isArray(update?.updates)) {
+    return update.updates.filter((item: any) => item && typeof item === "object" && item.from);
+  }
+
+  // WhatsApp Agent updates follow the standard entry/changes/value envelope.
+  const entries = Array.isArray(update?.entry) ? update.entry : [];
+  const messages: AgentMessage[] = [];
+  for (const entry of entries) {
+    const changes = Array.isArray(entry?.changes) ? entry.changes : [];
+    for (const change of changes) {
+      const inbound = change?.value?.messages;
+      if (Array.isArray(inbound)) messages.push(...inbound);
+    }
+  }
+  return messages;
+}
+
 async function makeReply(message: string) {
   const { text } = await generateText({
     model: gemini(GEMINI_MODEL),
@@ -82,13 +101,14 @@ export async function GET(request: Request) {
   const testMode = process.env.WHATSAPP_TEST_MODE === "true";
 
   try {
-    // Keep the long poll short so the scheduled function can finish within its runtime limit.
-    const updates = await whatsappRequest("/updates?limit=50&timeout=5");
-    const messages: AgentMessage[] = Array.isArray(updates?.messages)
-      ? updates.messages
-      : Array.isArray(updates?.updates)
-        ? updates.updates.filter((item: any) => item?.from)
-        : [];
+    // Test mode replays the retained buffer so the just-sent test phrase is visible.
+    // All non-matching unread messages are ignored below.
+    const updates = await whatsappRequest(
+      testMode
+        ? "/updates?offset=0&limit=50&timeout=0"
+        : "/updates?limit=50&timeout=5"
+    );
+    const messages = extractMessages(updates);
 
     let handled = 0;
     let skipped = 0;
@@ -104,8 +124,7 @@ export async function GET(request: Request) {
         continue;
       }
 
-      // While testing, fail closed: ignore every message except the unique test phrase.
-      // This prevents queued unread messages from receiving an AI reply during validation.
+      // In test mode, fail closed: ignore every message except the unique test phrase.
       if (testMode && text !== WHATSAPP_TEST_MESSAGE) {
         skipped += 1;
         continue;
