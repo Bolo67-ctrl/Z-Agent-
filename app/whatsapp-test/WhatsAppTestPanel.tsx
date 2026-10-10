@@ -16,6 +16,35 @@ export default function WhatsAppTestPanel() {
   const [done, setDone] = useState(false);
   const [copied, setCopied] = useState(false);
   const [result, setResult] = useState<PollResult | null>(null);
+  const [healthSecret, setHealthSecret] = useState("");
+  const [healthLoading, setHealthLoading] = useState(false);
+  const [healthResult, setHealthResult] = useState<PollResult | null>(null);
+
+  async function verifyDatabase(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const token = healthSecret.trim();
+    if (!token || healthLoading) return;
+
+    setHealthLoading(true);
+    setHealthResult(null);
+    try {
+      const response = await fetch("/api/whatsapp-agent/health", {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: "application/json",
+        },
+        cache: "no-store",
+      });
+      const body = await response.json().catch(() => ({ error: "The endpoint returned a non-JSON response." }));
+      setHealthResult({ status: response.status, body });
+    } catch {
+      setHealthResult({ status: 0, body: { error: "Could not reach the Preview database check." } });
+    } finally {
+      setHealthSecret("");
+      setHealthLoading(false);
+    }
+  }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -56,6 +85,44 @@ export default function WhatsAppTestPanel() {
       </p>
 
       <section style={{ border: "1px solid #d4d4d4", borderRadius: 12, padding: 16, margin: "20px 0" }}>
+        <p style={{ fontSize: 12, fontWeight: 700, color: "#525252", marginTop: 0 }}>1 · Verify database setup (safe, no WhatsApp polling)</p>
+        <p style={{ lineHeight: 1.55 }}>
+          This check only verifies the Supabase tables and claim function. It does not poll WhatsApp, read messages, or send replies.
+          Enter the Preview CRON_SECRET below; the value is cleared after the request.
+        </p>
+        <form onSubmit={verifyDatabase} style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          <label htmlFor="health-cron-secret" style={{ fontSize: 14, fontWeight: 600 }}>Preview CRON_SECRET</label>
+          <input
+            id="health-cron-secret"
+            type="password"
+            autoComplete="off"
+            value={healthSecret}
+            onChange={event => setHealthSecret(event.target.value)}
+            placeholder="Paste your saved Preview secret"
+            disabled={healthLoading}
+            style={{ border: "1px solid #a3a3a3", borderRadius: 8, padding: 12, fontSize: 16 }}
+          />
+          <button
+            type="submit"
+            disabled={healthLoading || !healthSecret.trim()}
+            style={{
+              border: 0, borderRadius: 8, padding: "12px 14px", fontSize: 15, fontWeight: 700,
+              background: "#171717", color: "#ffffff",
+              cursor: healthLoading || !healthSecret.trim() ? "not-allowed" : "pointer",
+            }}
+          >
+            {healthLoading ? "Checking database…" : "Verify database only"}
+          </button>
+        </form>
+        {healthResult ? (
+          <div aria-live="polite" style={{ border: "1px solid #d4d4d4", borderRadius: 8, padding: 12, marginTop: 14 }}>
+            <h2 style={{ fontSize: 16, marginTop: 0 }}>Database check · HTTP {healthResult.status || "network error"}</h2>
+            <pre style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere", fontSize: 13, lineHeight: 1.5 }}>{JSON.stringify(healthResult.body, null, 2)}</pre>
+          </div>
+        ) : null}
+      </section>
+
+      <section style={{ border: "1px solid #d4d4d4", borderRadius: 12, padding: 16, margin: "20px 0" }}>
         <p style={{ fontSize: 12, fontWeight: 700, color: "#525252", marginTop: 0 }}>1 · Send this exact message to your Jarvis agent chat</p>
         <p style={{ overflowWrap: "anywhere", fontFamily: "ui-monospace, monospace", lineHeight: 1.5 }}>{TEST_MESSAGE}</p>
         <button
@@ -71,7 +138,7 @@ export default function WhatsAppTestPanel() {
       </section>
 
       <section style={{ border: "1px solid #d4d4d4", borderRadius: 12, padding: 16, margin: "20px 0" }}>
-        <p style={{ fontSize: 12, fontWeight: 700, color: "#525252", marginTop: 0 }}>2 · Run one authenticated poll</p>
+        <p style={{ fontSize: 12, fontWeight: 700, color: "#525252", marginTop: 0 }}>2 · Run one authenticated poll (do not use this for the database check)</p>
         <p style={{ lineHeight: 1.55 }}>
           Enter the CRON_SECRET you saved for Preview. It is used only for this request and cleared from the input afterward. Do not share it in chat.
         </p>
