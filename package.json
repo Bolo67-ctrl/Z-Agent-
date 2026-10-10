@@ -18,7 +18,7 @@
     "@exalabs/ai-sdk": "latest",
     "@supabase/ssr": "latest",
     "@supabase/supabase-js": "latest",
-    "@ai-sdk/openai-compatible": "latest"
+    "@ai-sdk/openai-compatible": "2.0.81"
   },
   "devDependencies": {
     "@types/node": "latest",
