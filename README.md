@@ -9,7 +9,7 @@ Z-Agent turns natural-language requests into useful work: reasoning, planning, t
 - Next.js
 - TypeScript
 - React
-- Vercel AI SDK
+- Vercel AI SDK with the Google Gemini API
 - Supabase
 
 ## Roadmap
