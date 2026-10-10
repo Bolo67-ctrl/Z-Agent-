@@ -3,6 +3,19 @@ import { GEMINI_MODEL, gemini } from "@/lib/ai";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
 
+export const maxDuration = 60;
+
+function logModelError(error: unknown) {
+  const details = error && typeof error === "object"
+    ? error as { name?: unknown; statusCode?: unknown; status?: unknown }
+    : {};
+  console.error("[Z-Agent] Gemini stream failed", {
+    name: typeof details.name === "string" ? details.name : "UnknownError",
+    statusCode: typeof details.statusCode === "number" ? details.statusCode : null,
+    status: typeof details.status === "number" ? details.status : null,
+  });
+}
+
 
 
 const tools = {
@@ -311,6 +324,10 @@ export async function POST(req: Request) {
 
   const result = streamText({
     model: gemini(GEMINI_MODEL),
+    abortSignal: AbortSignal.timeout(50_000),
+    onError({ error }) {
+      logModelError(error);
+    },
     system:
       "You are Z-Agent, a capable general-purpose AI agent. Be helpful, clear, and honest. " +
       "Use tools when they improve accuracy. Use webSearch for current, changing, niche, or source-sensitive information. " +
@@ -323,5 +340,9 @@ export async function POST(req: Request) {
     messages: modelMessages,
   });
 
-  return result.toUIMessageStreamResponse();
+  return result.toUIMessageStreamResponse({
+    onError() {
+      return "Gemini could not complete this response. Check the Vercel function logs for the safe error status, then verify your Gemini API key and model access.";
+    },
+  });
 }
