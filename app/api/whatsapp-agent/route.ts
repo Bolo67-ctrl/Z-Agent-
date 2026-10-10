@@ -92,7 +92,8 @@ export async function GET(request: Request) {
       const text = typeof message.text?.body === "string" ? message.text.body.trim() : "";
 
       // The documented recipient identifier must be used exactly as received.
-      // Only answer human user IDs. Ignore agent IDs and any unknown sender format to prevent loops.\n      if (!recipient.startsWith("user:") || message.type !== "text" || !text) {
+      // Only answer human user IDs. Ignore agent IDs and unknown sender formats to prevent loops.
+      if (!recipient.startsWith("user:") || message.type !== "text" || !text) {
         skipped += 1;
         continue;
       }
