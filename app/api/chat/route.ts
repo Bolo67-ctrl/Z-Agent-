@@ -1,6 +1,13 @@
 import { convertToModelMessages, stepCountIs, streamText, tool } from "ai";
+import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
+
+const huggingFace = createOpenAICompatible({
+  name: "huggingface",
+  apiKey: process.env.HF_TOKEN,
+  baseURL: "https://router.huggingface.co/v1",
+});
 
 const tools = {
   memorySave: tool({
@@ -294,13 +301,20 @@ export async function POST(req: Request) {
     );
   }
 
+  if (!process.env.HF_TOKEN) {
+    return Response.json(
+      { error: "AI is not configured yet. Add HF_TOKEN to the Vercel project environment variables and redeploy." },
+      { status: 503 },
+    );
+  }
+
   const modelMessages = await convertToModelMessages(messages);
   const latestUserMessage = [...modelMessages].reverse().find((message) => message.role === "user");
   const latestUserText = latestUserMessage ? textFromModelMessage(latestUserMessage) : "";
 
 
   const result = streamText({
-    model: "openai/gpt-5.5",
+    model: huggingFace("openai/gpt-oss-120b:cerebras"),
     system:
       "You are Z-Agent, a capable general-purpose AI agent. Be helpful, clear, and honest. " +
       "Use tools when they improve accuracy. Use webSearch for current, changing, niche, or source-sensitive information. " +
