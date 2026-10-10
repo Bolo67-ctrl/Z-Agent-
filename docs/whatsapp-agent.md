@@ -8,24 +8,27 @@ This integration lets the deployed Z-Agent backend poll a WhatsApp third-party a
 - `CRON_SECRET`: a long random secret used to authenticate scheduled requests. The caller sends it as `Authorization: Bearer <CRON_SECRET>`.
 - `GEMINI_API_KEY`: the Google Gemini API key used by both website chat and WhatsApp replies. Create it in [Google AI Studio](https://aistudio.google.com/app/apikey).
 - `GEMINI_MODEL` (optional): Gemini model ID. Defaults to `gemini-3.8-flash`.
+- `SUPABASE_SERVICE_ROLE_KEY`: required only for normal (non-test) WhatsApp polling. Add it as a **server-only sensitive** Vercel variable; never use the publishable key for the poller's database writes.
 
 Never commit real credentials to GitHub or expose them in client-side code.
 
 ## Deploy and configure
 
 1. Deploy the `whatsapp-agent-platform` branch to Vercel as a Preview, or merge it after reviewing the changes.
-2. Add `WHATSAPP_AGENT_API_TOKEN`, `CRON_SECRET`, and `GEMINI_API_KEY` to the Vercel project settings. Optionally set `GEMINI_MODEL`, then redeploy the Preview/Production deployment.
-3. In GitHub repository Settings > Secrets and variables > Actions, add a repository secret named `CRON_SECRET` with the same value used in Vercel. Add a repository variable named `WHATSAPP_AGENT_URL` containing the deployed base URL (no trailing slash), for example the Vercel Production URL after the integration is merged and deployed.
-4. The workflow at `.github/workflows/whatsapp-agent-poll.yml` polls every five minutes on the default branch and can also be started manually from Actions. GitHub scheduled workflows run from the default branch; the workflow must be merged into the default branch for scheduled polling to run automatically.
-5. Send a simple text message in the Jarvis agent chat and inspect the Vercel function logs and GitHub Actions run logs.
+2. Apply `supabase/migrations/20261010000000_whatsapp_agent_reliability.sql` to the intended Supabase project (for example, paste it into the Supabase SQL Editor and run it). It creates a polling cursor table, a message-id deduplication table, and a restricted claim function. Message text is not stored.
+3. Add `WHATSAPP_AGENT_API_TOKEN`, `CRON_SECRET`, and `GEMINI_API_KEY` to Vercel. Add `SUPABASE_SERVICE_ROLE_KEY` as a sensitive server-only variable for Preview first; never prefix it with `NEXT_PUBLIC_`. Optionally set `GEMINI_MODEL`, then redeploy Preview.
+4. Before turning off test mode, review the Preview database setup and test only with a newly sent message. The first normal-mode poll bootstraps its cursor and intentionally skips messages already queued at that point, so it does not auto-reply to historical chats.
+5. Only after Preview behavior is verified, configure GitHub Actions with a `CRON_SECRET` secret and a `WHATSAPP_AGENT_URL` variable for that same Preview deployment. The workflow at `.github/workflows/whatsapp-agent-poll.yml` is scheduled every five minutes when installed on the default branch; do not point it at Production until separately reviewed.
 
 The endpoint requires the `Authorization: Bearer <CRON_SECRET>` header. Do not make the route public by removing this check.
 
 ## Current limitations
 
 - The endpoint only handles inbound text messages with a `text.body` field.
-- It assumes the documented updates response contains a `messages` array (or an `updates` array of message-like objects). Confirm the live response shape against the current WhatsApp developer manual before relying on it.
-- It does not yet implement message acknowledgement/status updates or durable idempotency. Verify the API's delivery/acknowledgement semantics before production use, otherwise retries could produce duplicate replies.
+- It accepts flat and nested `entry[].changes[].value.messages` update payloads and advances a saved `next_offset` cursor.
+- Normal mode uses durable message-ID claims to suppress duplicate replies and marks successfully replied-to messages as read. If a send request fails ambiguously, the message is marked `uncertain` and is not automatically resent.
+- The first normal-mode poll deliberately bootstraps the cursor and skips the current queue. Review the skipped count before testing normal mode.
+- The external send and the database write cannot form one atomic transaction. The guard substantially reduces duplicates, but a hard crash between a successful send and saving its state cannot be guaranteed exactly-once without provider-supported send idempotency.
 - GitHub Actions polling every five minutes is not instant and scheduled runs can be delayed.
 - AI-generated replies are limited to 4,000 characters.
 - Reminder scheduling, persistent WhatsApp conversation history, media, voice transcription, and tool execution are not included yet.
