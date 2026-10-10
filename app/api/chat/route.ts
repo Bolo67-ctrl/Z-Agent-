@@ -1,13 +1,9 @@
 import { convertToModelMessages, stepCountIs, streamText, tool } from "ai";
-import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
+import { GEMINI_MODEL, gemini } from "@/lib/ai";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
 
-const mistral = createOpenAICompatible({
-  name: "mistral",
-  apiKey: process.env.MISTRAL_API_KEY,
-  baseURL: "https://api.mistral.ai/v1",
-});
+
 
 const tools = {
   memorySave: tool({
@@ -301,9 +297,9 @@ export async function POST(req: Request) {
     );
   }
 
-  if (!process.env.MISTRAL_API_KEY) {
+  if (!process.env.GEMINI_API_KEY) {
     return Response.json(
-      { error: "AI is not configured yet. Add MISTRAL_API_KEY to the Vercel Preview environment variables and redeploy." },
+      { error: "AI is not configured yet. Add GEMINI_API_KEY to the Vercel environment variables and redeploy." },
       { status: 503 },
     );
   }
@@ -314,7 +310,7 @@ export async function POST(req: Request) {
 
 
   const result = streamText({
-    model: mistral("mistral-small-latest"),
+    model: gemini(GEMINI_MODEL),
     system:
       "You are Z-Agent, a capable general-purpose AI agent. Be helpful, clear, and honest. " +
       "Use tools when they improve accuracy. Use webSearch for current, changing, niche, or source-sensitive information. " +
