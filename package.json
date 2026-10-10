@@ -17,7 +17,8 @@
     "zod": "latest",
     "@exalabs/ai-sdk": "latest",
     "@supabase/ssr": "latest",
-    "@supabase/supabase-js": "latest"
+    "@supabase/supabase-js": "latest",
+    "@ai-sdk/openai-compatible": "latest"
   },
   "devDependencies": {
     "@types/node": "latest",
