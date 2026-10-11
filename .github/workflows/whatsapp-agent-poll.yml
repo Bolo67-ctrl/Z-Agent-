@@ -11,6 +11,8 @@ concurrency:
 
 jobs:
   poll:
+    # Fail closed: scheduled/manual polling is opt-in and stays off until deliberately enabled.
+    if: ${{ vars.WHATSAPP_POLLING_ENABLED == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
