@@ -1,15 +1,7 @@
-name: Poll WhatsApp Agent
+name: Poll WhatsApp Agent (Manual Fallback)
 
 on:
-  # Recurring runs live in whatsapp-agent-scheduler.yml; this workflow remains manual/config-triggered.
   workflow_dispatch:
-  # A workflow-config change gives us one controlled way to test/resync the poller.
-  # Normal application-code pushes do not trigger WhatsApp polling.
-  push:
-    branches:
-      - main
-    paths:
-      - .github/workflows/whatsapp-agent-poll.yml
 
 concurrency:
   group: whatsapp-agent-poll
@@ -17,13 +9,14 @@ concurrency:
 
 jobs:
   poll:
+    # Enable this variable only while the always-on worker is stopped.
+    if: ${{ vars.WHATSAPP_POLLING_ENABLED == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 6
     steps:
       - name: Poll Jarvis agent
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
-          # Use the stable, public Production alias—not a protected deployment-specific URL.
           AGENT_URL: https://z-agent-zeta.vercel.app
         run: |
           set -eu
