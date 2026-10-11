@@ -20,7 +20,7 @@ concurrency:
 jobs:
   poll:
     runs-on: ubuntu-latest
-    timeout-minutes: 3
+    timeout-minutes: 6
     steps:
       - name: Poll Jarvis agent
         env:
@@ -35,8 +35,8 @@ jobs:
           fi
 
           response="$(curl --fail --silent --show-error \
-            --connect-timeout 10 --max-time 35 \
-            --retry 2 --retry-all-errors --retry-delay 3 \
+            --connect-timeout 10 --max-time 140 \
+            --retry 1 --retry-all-errors --retry-delay 3 \
             -H "Authorization: Bearer ${CRON_SECRET}" \
             "${AGENT_URL%/}/api/whatsapp-agent")"
 
