@@ -3,7 +3,7 @@ name: Poll WhatsApp Agent
 on:
   schedule:
     # Run every 5 minutes, offset from the start of each hour to reduce GitHub load delays.
-    - cron: "4-59/5 * * * *"
+    - cron: "4,9,14,19,24,29,34,39,44,49,54,59 * * * *"
   workflow_dispatch:
   # A workflow-config change gives us one controlled way to test/resync the poller.
   # Normal application-code pushes do not trigger WhatsApp polling.
