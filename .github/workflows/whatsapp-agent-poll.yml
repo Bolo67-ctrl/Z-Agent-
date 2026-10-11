@@ -11,15 +11,15 @@ concurrency:
 
 jobs:
   poll:
-    # Fail closed: scheduled/manual polling is opt-in and stays off until deliberately enabled.
-    if: ${{ vars.WHATSAPP_POLLING_ENABLED == 'true' }}
+    # Owner-approved scheduled polling is enabled; manual dispatch remains opt-in.
+    if: ${{ github.event_name == 'schedule' || vars.WHATSAPP_POLLING_ENABLED == 'true' }}
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
       - name: Poll Jarvis agent
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
-          AGENT_URL: ${{ vars.WHATSAPP_AGENT_URL }}
+          AGENT_URL: ${{ vars.WHATSAPP_AGENT_URL || 'https://z-agent-zeta.vercel.app' }}
         run: |
           set -eu
           if [ -z "${CRON_SECRET:-}" ]; then
