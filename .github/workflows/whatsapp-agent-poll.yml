@@ -1,7 +1,15 @@
 name: Poll WhatsApp Agent (Manual Fallback)
 
 on:
+  # Free automatic fallback. This can be delayed by GitHub and is not instant.
+  schedule:
+    - cron: "*/5 * * * *"
   workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/whatsapp-agent-poll.yml
 
 concurrency:
   group: whatsapp-agent-poll
@@ -9,8 +17,8 @@ concurrency:
 
 jobs:
   poll:
-    # Enable this variable only while the always-on worker is stopped.
-    if: ${{ vars.WHATSAPP_POLLING_ENABLED == 'true' }}
+    # Schedule/config-push runs are automatic; manual runs remain opt-in.
+    if: ${{ github.event_name == 'schedule' || github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && vars.WHATSAPP_POLLING_ENABLED == 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 6
     steps:
