@@ -1,6 +1,4 @@
-import { generateText } from "ai";
 import { createClient } from "@supabase/supabase-js";
-import { GEMINI_MODEL, gemini } from "@/lib/ai";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -16,11 +14,6 @@ type AgentMessage = {
   from?: string;
   type?: string;
   text?: { body?: string };
-};
-
-type PriorTurn = {
-  role: "user" | "assistant";
-  content: string;
 };
 
 function jsonError(message: string, status: number) {
@@ -103,26 +96,14 @@ async function productionPoll() {
     auth: { persistSession: false, autoRefreshToken: false },
   });
 
-  // Conversation text is an opt-in schema migration. If it has not been applied yet,
-  // keep replying safely without memory instead of blocking messages.
-  const historySchema = await db
+  // The command bot no longer stores chat text. Clear any context text written by the prior AI version after 30 days.
+  const retentionCutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+  await db
     .from("whatsapp_agent_messages")
-    .select("inbound_text, reply_text")
-    .limit(1);
-  const conversationHistoryAvailable = !historySchema.error;
+    .update({ inbound_text: null, reply_text: null })
+    .lt("created_at", retentionCutoff);
+
   const warnings: string[] = [];
-  if (!conversationHistoryAvailable) {
-    warnings.push(
-      "Conversation history is not enabled yet. Apply supabase/migrations/20261011000000_whatsapp_conversation_history.sql."
-    );
-  } else {
-    // Clear saved conversation text after 30 days. Other delivery/idempotency metadata remains.
-    const retentionCutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
-    await db
-      .from("whatsapp_agent_messages")
-      .update({ inbound_text: null, reply_text: null })
-      .lt("created_at", retentionCutoff);
-  }
 
   try {
     const stateResult = await db
@@ -188,8 +169,8 @@ async function productionPoll() {
       const recipient = typeof message.from === "string" ? message.from : "";
       const text = typeof message.text?.body === "string" ? message.text.body.trim() : "";
 
-      // Do not reply to unsupported or malformed messages. They are passed by the cursor.
-      if (!messageId || !recipient.startsWith("user:") || message.type !== "text" || !text) {
+      // Only slash commands are handled. Ordinary chat is intentionally ignored (no AI).
+      if (!messageId || !recipient.startsWith("user:") || message.type !== "text" || !text || !text.startsWith("/")) {
         skipped += 1;
         continue;
       }
@@ -223,54 +204,7 @@ async function productionPoll() {
         break;
       }
 
-      let reply = "";
-      const historyResult = conversationHistoryAvailable
-        ? await db
-            .from("whatsapp_agent_messages")
-            .select("inbound_text, reply_text")
-            .eq("sender", recipient)
-            .eq("status", "sent")
-            .not("inbound_text", "is", null)
-            .not("reply_text", "is", null)
-            .order("created_at", { ascending: false })
-            .limit(8)
-        : null;
-      const historyAvailable = Boolean(historyResult && !historyResult.error);
-      if (conversationHistoryAvailable && !historyAvailable) {
-        warnings.push("Conversation history could not be loaded for this sender; this reply used only the current message.");
-      }
-      const priorTurns: PriorTurn[] = historyAvailable
-        ? (historyResult?.data ?? []).reverse().flatMap((row: { inbound_text: string | null; reply_text: string | null }) => {
-            if (!row.inbound_text || !row.reply_text) return [];
-            return [
-              { role: "user" as const, content: row.inbound_text },
-              { role: "assistant" as const, content: row.reply_text },
-            ];
-          })
-        : [];
-
-      try {
-        reply = await makeReply(text, priorTurns);
-        if (!reply) throw new Error("The AI returned an empty reply.");
-      } catch (error) {
-        // Log only provider diagnostics, never prompts, user messages, API keys, or reply content.
-        const providerError = (error && typeof error === "object" ? error : {}) as {
-          name?: unknown;
-          statusCode?: unknown;
-          isRetryable?: unknown;
-        };
-        console.error("[WhatsApp Agent] AI reply generation failed", {
-          name: typeof providerError.name === "string" ? providerError.name : "UnknownError",
-          statusCode: typeof providerError.statusCode === "number" ? providerError.statusCode : undefined,
-          isRetryable: typeof providerError.isRetryable === "boolean" ? providerError.isRetryable : undefined,
-        });
-        await db
-          .from("whatsapp_agent_messages")
-          .update({ status: "failed", lease_until: null, updated_at: new Date().toISOString() })
-          .eq("message_id", messageId);
-        errors.push("AI reply generation failed; the message is eligible for a later retry.");
-        continue;
-      }
+      const reply = commandReply(text);
 
       // Persist a one-way send lock BEFORE calling the external API. If delivery or the
       // subsequent DB write is ambiguous, this row remains terminal and cannot be resent.
@@ -278,7 +212,6 @@ async function productionPoll() {
         status: "uncertain",
         lease_until: null,
         updated_at: new Date().toISOString(),
-        ...(historyAvailable ? { inbound_text: text, reply_text: reply } : {}),
       };
       const sendIntent = await db
         .from("whatsapp_agent_messages")
@@ -354,63 +287,58 @@ async function productionPoll() {
       skipped,
       errors,
       warnings,
-      conversationMemory: conversationHistoryAvailable,
+      mode: "command-only",
     });
   } catch {
     return jsonError("WhatsApp polling failed. Check the server-side configuration and migration status.", 502);
   }
 }
 
-async function makeReply(message: string, history: PriorTurn[] = []) {
-  // Try the configured model first, then a faster Flash-Lite fallback if it stalls.
-  const modelIds = [...new Set(["gemini-3.5-flash-lite", GEMINI_MODEL])];
-  let lastError: unknown = new Error("No AI models are configured.");
+function commandReply(message: string) {
+  const firstToken = message.trim().split(/\s+/, 1)[0] || "";
+  const command = firstToken.split("@", 1)[0].toLowerCase();
 
-  for (const modelId of modelIds) {
-    try {
-      const result = await generateText({
-        // Bound each model attempt so a slow primary does not block the fallback.
-        abortSignal: AbortSignal.timeout(18000),
-        maxRetries: 0,
-        model: gemini(modelId),
-        system:
-          "You are Jarvis, a helpful personal AI assistant speaking with your owner in a private WhatsApp agent chat. " +
-          "Have a natural, ongoing conversation and use the prior user/assistant messages to understand follow-ups, references, and context. " +
-          "Be warm, concise, and useful. If context is genuinely missing, ask one short clarifying question. " +
-          "You can answer questions and help plan tasks, but do not claim to have completed actions, " +
-          "set reminders, browsed the internet, or accessed accounts unless a configured tool actually did so. " +
-          "Ask for confirmation before sensitive or irreversible actions. Do not ask the user to send passwords, API keys, or authentication codes.",
-        messages: [
-          ...history.map(({ role, content }) => ({ role, content })),
-          { role: "user" as const, content: message },
-        ],
-      });
-
-      const reply = result.text.trim().slice(0, MAX_REPLY_LENGTH);
-      if (!reply) throw new Error("The AI returned an empty reply.");
-      if (modelId !== GEMINI_MODEL) {
-        console.info("[WhatsApp Agent] AI fallback model succeeded", { model: modelId });
-      }
-      return reply;
-    } catch (error) {
-      lastError = error;
-      // Log only provider diagnostics, never prompts, user messages, API keys, or reply content.
-      const providerError = (error && typeof error === "object" ? error : {}) as {
-        name?: unknown;
-        statusCode?: unknown;
-        isRetryable?: unknown;
-      };
-      console.error("[WhatsApp Agent] AI model attempt failed", {
-        model: modelId,
-        name: typeof providerError.name === "string" ? providerError.name : "UnknownError",
-        statusCode: typeof providerError.statusCode === "number" ? providerError.statusCode : undefined,
-        isRetryable: typeof providerError.isRetryable === "boolean" ? providerError.isRetryable : undefined,
-      });
-    }
+  switch (command) {
+    case "/help":
+    case "/start":
+      return [
+        "🤖 *Jarvis Commands*",
+        "",
+        "/help — Show this command list",
+        "/ping — Check if Jarvis responds",
+        "/time — Show the current time (UTC)",
+        "/status — Show bot mode",
+        "/about — About Jarvis",
+      ].join("\n");
+    case "/ping":
+      return "Pong! 🟢 Jarvis is responding.";
+    case "/time":
+      return "🕒 Current time: " +
+        new Intl.DateTimeFormat("en-US", {
+          dateStyle: "full",
+          timeStyle: "short",
+          timeZone: "UTC",
+        }).format(new Date()) +
+        " UTC";
+    case "/status":
+      return [
+        "🟢 *Jarvis Status*",
+        "Mode: command-only",
+        "AI replies: disabled",
+        "Commands: /help",
+      ].join("\n");
+    case "/about":
+      return [
+        "🤖 *Jarvis WhatsApp Bot*",
+        "Version: 1.0",
+        "Mode: deterministic commands",
+        "No AI generation is used for command replies.",
+      ].join("\n");
+    default:
+      return "Unknown command: " + command.slice(0, 80) + "\nSend /help to see available commands.";
   }
-
-  throw lastError;
 }
+
 /**
  * Polls WhatsApp Agent Platform updates.
  * Configure WHATSAPP_AGENT_API_TOKEN, CRON_SECRET, and GEMINI_API_KEY in Vercel.
@@ -424,7 +352,6 @@ export async function GET(request: Request) {
   if (!testMode && process.env.WHATSAPP_NORMAL_MODE_ENABLED !== "true") {
     return jsonError("Normal WhatsApp replies are disabled in this environment.", 503);
   }
-  if (!process.env.GEMINI_API_KEY) return jsonError("GEMINI_API_KEY is not configured.", 503);
   if (!process.env.WHATSAPP_AGENT_API_TOKEN) return jsonError("WHATSAPP_AGENT_API_TOKEN is not configured.", 503);
   if (!testMode) return productionPoll();
 
@@ -494,18 +421,7 @@ export async function GET(request: Request) {
         break;
       }
 
-      let reply = "";
-      try {
-        reply = await makeReply(text);
-        if (!reply) throw new Error("The AI returned an empty reply.");
-      } catch {
-        await db
-          .from("whatsapp_agent_messages")
-          .update({ status: "failed", lease_until: null, updated_at: new Date().toISOString() })
-          .eq("message_id", messageId);
-        errors.push("Test reply generation failed. The message was not sent.");
-        break;
-      }
+      const reply = "WHATSAPP TEST SUCCESSFUL.";
 
       // Commit the one-way send lock before touching the external messaging API.
       const sendIntent = await db
