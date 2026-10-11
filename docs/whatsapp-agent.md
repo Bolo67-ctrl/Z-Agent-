@@ -37,7 +37,7 @@ The endpoint is protected by `CRON_SECRET`; **do not remove the authorization ch
 
 - `scripts/whatsapp-agent-worker.mjs` is the continuous-listener program. It needs an always-on Node.js runtime with `AGENT_URL` set to `https://z-agent-zeta.vercel.app` and `CRON_SECRET` set to the same value as Vercel Production.
 - The worker is source code only; it is **not currently deployed or running**. Creating an always-on hosted worker may cost money depending on the host and plan.
-- `.github/workflows/whatsapp-agent-poll.yml` is an opt-in manual fallback, guarded by the `WHATSAPP_POLLING_ENABLED=true` repository variable. It is not a continuous listener and does not provide instant responses on its own.
+- `.github/workflows/whatsapp-agent-poll.yml` runs a free GitHub Actions poll every five minutes. GitHub may delay scheduled runs, so this fallback is automatic but not instant. Manual dispatch stays opt-in behind `WHATSAPP_POLLING_ENABLED=true`.
 - Do not run multiple pollers concurrently. A single active listener should own the update cursor.
 
 ## Reliability and privacy
