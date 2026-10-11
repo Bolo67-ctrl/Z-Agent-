@@ -3,7 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { GEMINI_MODEL, gemini } from "@/lib/ai";
 
 export const runtime = "nodejs";
-export const maxDuration = 30;
+export const maxDuration = 120;
 
 const API_BASE = "https://api.whatsapp.com/agent/v1";
 const MAX_REPLY_LENGTH = 4000;
@@ -137,7 +137,7 @@ async function productionPoll() {
       : Number(stateResult.data.next_offset);
     const path = cursor == null
       ? "/updates?limit=50&timeout=0"
-      : "/updates?offset=" + encodeURIComponent(String(cursor)) + "&limit=50&timeout=5";
+      : "/updates?offset=" + encodeURIComponent(String(cursor)) + "&limit=50&timeout=0";
     const updates = await whatsappRequest(path);
 
     // HTTP 204 means no update arrived. Keep the current cursor and try later.
@@ -249,7 +249,18 @@ async function productionPoll() {
       try {
         reply = await makeReply(text, priorTurns);
         if (!reply) throw new Error("The AI returned an empty reply.");
-      } catch {
+      } catch (error) {
+        // Log only provider diagnostics, never prompts, user messages, API keys, or reply content.
+        const providerError = (error && typeof error === "object" ? error : {}) as {
+          name?: unknown;
+          statusCode?: unknown;
+          isRetryable?: unknown;
+        };
+        console.error("[WhatsApp Agent] AI reply generation failed", {
+          name: typeof providerError.name === "string" ? providerError.name : "UnknownError",
+          statusCode: typeof providerError.statusCode === "number" ? providerError.statusCode : undefined,
+          isRetryable: typeof providerError.isRetryable === "boolean" ? providerError.isRetryable : undefined,
+        });
         await db
           .from("whatsapp_agent_messages")
           .update({ status: "failed", lease_until: null, updated_at: new Date().toISOString() })
@@ -350,7 +361,8 @@ async function productionPoll() {
 async function makeReply(message: string, history: PriorTurn[] = []) {
   const { text } = await generateText({
     // Keep AI generation bounded so the route can persist state and respond safely.
-    abortSignal: AbortSignal.timeout(10000),
+    abortSignal: AbortSignal.timeout(25000),
+    maxRetries: 2,
     model: gemini(GEMINI_MODEL),
     system:
       "You are Jarvis, a helpful personal AI assistant speaking with your owner in a private WhatsApp agent chat. " +
