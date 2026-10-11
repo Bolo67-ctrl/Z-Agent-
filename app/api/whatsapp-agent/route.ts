@@ -40,7 +40,7 @@ async function whatsappRequest(path: string, init: RequestInit = {}) {
   // Bound upstream calls so they return control before the Vercel function deadline.
   // A /messages timeout is ambiguous; its durable pre-send lock remains terminal.
   const timeoutMs = path.startsWith("/updates")
-    ? (path.includes("timeout=5") ? 7500 : 6000)
+    ? (path.includes("timeout=25") ? 30000 : path.includes("timeout=5") ? 7500 : 6000)
     : path === "/messages"
       ? 6000
       : 3000;
@@ -54,6 +54,9 @@ async function whatsappRequest(path: string, init: RequestInit = {}) {
     cache: "no-store",
     signal: init.signal ?? AbortSignal.timeout(timeoutMs),
   });
+
+  // HTTP 204 means an empty long poll; keep the stored cursor unchanged.
+  if (response.status === 204) return null;
 
   const body = await response.text();
   let data: any = null;
@@ -137,7 +140,7 @@ async function productionPoll() {
       : Number(stateResult.data.next_offset);
     const path = cursor == null
       ? "/updates?limit=50&timeout=0"
-      : "/updates?offset=" + encodeURIComponent(String(cursor)) + "&limit=50&timeout=0";
+      : "/updates?offset=" + encodeURIComponent(String(cursor)) + "&limit=50&timeout=25";
     const updates = await whatsappRequest(path);
 
     // HTTP 204 means no update arrived. Keep the current cursor and try later.
@@ -360,7 +363,7 @@ async function productionPoll() {
 
 async function makeReply(message: string, history: PriorTurn[] = []) {
   // Try the configured model first, then a faster Flash-Lite fallback if it stalls.
-  const modelIds = [...new Set([GEMINI_MODEL, "gemini-3.5-flash-lite"])];
+  const modelIds = [...new Set(["gemini-3.5-flash-lite", GEMINI_MODEL])];
   let lastError: unknown = new Error("No AI models are configured.");
 
   for (const modelId of modelIds) {
