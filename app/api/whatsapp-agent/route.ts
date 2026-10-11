@@ -18,6 +18,11 @@ type AgentMessage = {
   text?: { body?: string };
 };
 
+type PriorTurn = {
+  role: "user" | "assistant";
+  content: string;
+};
+
 function jsonError(message: string, status: number) {
   return Response.json({ ok: false, error: message }, { status });
 }
@@ -94,6 +99,27 @@ async function productionPoll() {
   const db = createClient(supabaseUrl, serviceKey, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
+
+  // Conversation text is an opt-in schema migration. If it has not been applied yet,
+  // keep replying safely without memory instead of blocking messages.
+  const historySchema = await db
+    .from("whatsapp_agent_messages")
+    .select("inbound_text, reply_text")
+    .limit(1);
+  const conversationHistoryAvailable = !historySchema.error;
+  const warnings: string[] = [];
+  if (!conversationHistoryAvailable) {
+    warnings.push(
+      "Conversation history is not enabled yet. Apply supabase/migrations/20261011000000_whatsapp_conversation_history.sql."
+    );
+  } else {
+    // Clear saved conversation text after 30 days. Other delivery/idempotency metadata remains.
+    const retentionCutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+    await db
+      .from("whatsapp_agent_messages")
+      .update({ inbound_text: null, reply_text: null })
+      .lt("created_at", retentionCutoff);
+  }
 
   try {
     const stateResult = await db
@@ -195,8 +221,33 @@ async function productionPoll() {
       }
 
       let reply = "";
+      const historyResult = conversationHistoryAvailable
+        ? await db
+            .from("whatsapp_agent_messages")
+            .select("inbound_text, reply_text")
+            .eq("sender", recipient)
+            .eq("status", "sent")
+            .not("inbound_text", "is", null)
+            .not("reply_text", "is", null)
+            .order("created_at", { ascending: false })
+            .limit(8)
+        : null;
+      const historyAvailable = Boolean(historyResult && !historyResult.error);
+      if (conversationHistoryAvailable && !historyAvailable) {
+        warnings.push("Conversation history could not be loaded for this sender; this reply used only the current message.");
+      }
+      const priorTurns: PriorTurn[] = historyAvailable
+        ? (historyResult?.data ?? []).reverse().flatMap((row: { inbound_text: string | null; reply_text: string | null }) => {
+            if (!row.inbound_text || !row.reply_text) return [];
+            return [
+              { role: "user" as const, content: row.inbound_text },
+              { role: "assistant" as const, content: row.reply_text },
+            ];
+          })
+        : [];
+
       try {
-        reply = await makeReply(text);
+        reply = await makeReply(text, priorTurns);
         if (!reply) throw new Error("The AI returned an empty reply.");
       } catch {
         await db
@@ -209,9 +260,15 @@ async function productionPoll() {
 
       // Persist a one-way send lock BEFORE calling the external API. If delivery or the
       // subsequent DB write is ambiguous, this row remains terminal and cannot be resent.
+      const sendIntentUpdate = {
+        status: "uncertain",
+        lease_until: null,
+        updated_at: new Date().toISOString(),
+        ...(historyAvailable ? { inbound_text: text, reply_text: reply } : {}),
+      };
       const sendIntent = await db
         .from("whatsapp_agent_messages")
-        .update({ status: "uncertain", lease_until: null, updated_at: new Date().toISOString() })
+        .update(sendIntentUpdate)
         .eq("message_id", messageId)
         .eq("status", "processing")
         .select("message_id")
@@ -276,23 +333,36 @@ async function productionPoll() {
       if (error) errors.push("Could not save the latest WhatsApp polling cursor.");
     }
 
-    return Response.json({ ok: errors.length === 0, received: messages.length, handled, skipped, errors });
+    return Response.json({
+      ok: errors.length === 0,
+      received: messages.length,
+      handled,
+      skipped,
+      errors,
+      warnings,
+      conversationMemory: conversationHistoryAvailable,
+    });
   } catch {
     return jsonError("WhatsApp polling failed. Check the server-side configuration and migration status.", 502);
   }
 }
 
-async function makeReply(message: string) {
+async function makeReply(message: string, history: PriorTurn[] = []) {
   const { text } = await generateText({
     // Keep AI generation bounded so the route can persist state and respond safely.
     abortSignal: AbortSignal.timeout(10000),
     model: gemini(GEMINI_MODEL),
     system:
       "You are Jarvis, a helpful personal AI assistant speaking with your owner in a private WhatsApp agent chat. " +
-      "Be warm, concise, and useful. You can answer questions and help plan tasks, but do not claim to have completed actions, " +
+      "Have a natural, ongoing conversation and use the prior user/assistant messages to understand follow-ups, references, and context. " +
+      "Be warm, concise, and useful. If context is genuinely missing, ask one short clarifying question. " +
+      "You can answer questions and help plan tasks, but do not claim to have completed actions, " +
       "set reminders, browsed the internet, or accessed accounts unless a configured tool actually did so. " +
       "Ask for confirmation before sensitive or irreversible actions. Do not ask the user to send passwords, API keys, or authentication codes.",
-    prompt: message,
+    messages: [
+      ...history.map(({ role, content }) => ({ role, content })),
+      { role: "user" as const, content: message },
+    ],
   });
 
   return text.trim().slice(0, MAX_REPLY_LENGTH);
