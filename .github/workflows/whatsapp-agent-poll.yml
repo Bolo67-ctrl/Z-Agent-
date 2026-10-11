@@ -1,6 +1,11 @@
 name: Poll WhatsApp Agent
 
 on:
+  # Safe diagnostic: a workflow-file update should create a run without polling WhatsApp.
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/whatsapp-agent-poll.yml"
   schedule:
     - cron: "*/5 * * * *"
   workflow_dispatch:
@@ -10,9 +15,16 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  verify-actions:
+    if: ${{ github.event_name == 'push' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Confirm GitHub Actions is running (no WhatsApp poll)
+        run: echo "GitHub Actions is enabled. This diagnostic did not contact WhatsApp or send a message."
+
   poll:
-    # Owner-approved scheduled polling is enabled; manual dispatch remains opt-in.
-    if: ${{ github.event_name == 'schedule' || vars.WHATSAPP_POLLING_ENABLED == 'true' }}
+    # Owner-approved scheduled polling is enabled; manual runs require explicit opt-in.
+    if: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && vars.WHATSAPP_POLLING_ENABLED == 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
