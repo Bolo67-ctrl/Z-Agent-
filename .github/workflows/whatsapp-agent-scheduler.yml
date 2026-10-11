@@ -5,6 +5,12 @@ on:
     # Every five minutes, away from the start of each hour to reduce scheduling delays.
     - cron: "4,9,14,19,24,29,34,39,44,49,54,59 * * * *"
   workflow_dispatch:
+  # A config-only push lets us verify this workflow immediately after scheduler changes.
+  push:
+    branches:
+      - main
+    paths:
+      - .github/workflows/whatsapp-agent-scheduler.yml
 
 concurrency:
   # Share the lock with the manual/config poll workflow to prevent overlapping polls.
