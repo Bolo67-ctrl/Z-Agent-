@@ -341,7 +341,7 @@ function commandReply(message: string) {
 
 /**
  * Polls WhatsApp Agent Platform updates.
- * Configure WHATSAPP_AGENT_API_TOKEN, CRON_SECRET, and GEMINI_API_KEY in Vercel.
+ * Configure WHATSAPP_AGENT_API_TOKEN, CRON_SECRET, and Supabase server credentials in Vercel.
  * Set WHATSAPP_TEST_MODE=true in Preview to process only the unique test message below.
  */
 export async function GET(request: Request) {
