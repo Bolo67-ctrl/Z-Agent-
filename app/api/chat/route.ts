@@ -1,6 +1,22 @@
 import { convertToModelMessages, stepCountIs, streamText, tool } from "ai";
+import { GEMINI_MODEL, gemini } from "@/lib/ai";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
+
+export const maxDuration = 60;
+
+function logModelError(error: unknown) {
+  const details = error && typeof error === "object"
+    ? error as { name?: unknown; statusCode?: unknown; status?: unknown }
+    : {};
+  console.error("[Z-Agent] Gemini stream failed", {
+    name: typeof details.name === "string" ? details.name : "UnknownError",
+    statusCode: typeof details.statusCode === "number" ? details.statusCode : null,
+    status: typeof details.status === "number" ? details.status : null,
+  });
+}
+
+
 
 const tools = {
   memorySave: tool({
@@ -282,6 +298,13 @@ function textFromModelMessage(message: { role: string; content?: unknown }) {
 }
 
 export async function POST(req: Request) {
+  if (!process.env.GEMINI_API_KEY) {
+    return Response.json(
+      { error: "AI is not configured yet. Add GEMINI_API_KEY to the Vercel environment variables and redeploy." },
+      { status: 503 },
+    );
+  }
+
   const { messages } = await req.json();
   const supabase = await createClient();
   const { data: userData } = await supabase.auth.getUser();
@@ -294,13 +317,26 @@ export async function POST(req: Request) {
     );
   }
 
+
   const modelMessages = await convertToModelMessages(messages);
   const latestUserMessage = [...modelMessages].reverse().find((message) => message.role === "user");
   const latestUserText = latestUserMessage ? textFromModelMessage(latestUserMessage) : "";
 
 
   const result = streamText({
-    model: "openai/gpt-5.5",
+    model: gemini(GEMINI_MODEL),
+    maxRetries: 0,
+    providerOptions: {
+      google: {
+        thinkingConfig: {
+          thinkingLevel: "low",
+        },
+      },
+    },
+    abortSignal: AbortSignal.timeout(40_000),
+    onError({ error }) {
+      logModelError(error);
+    },
     system:
       "You are Z-Agent, a capable general-purpose AI agent. Be helpful, clear, and honest. " +
       "Use tools when they improve accuracy. Use webSearch for current, changing, niche, or source-sensitive information. " +
@@ -313,5 +349,9 @@ export async function POST(req: Request) {
     messages: modelMessages,
   });
 
-  return result.toUIMessageStreamResponse();
+  return result.toUIMessageStreamResponse({
+    onError() {
+      return "Gemini could not complete this response. Check the Vercel function logs for the safe error status, then verify your Gemini API key and model access.";
+    },
+  });
 }
