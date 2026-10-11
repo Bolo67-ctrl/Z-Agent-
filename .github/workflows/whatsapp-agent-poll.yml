@@ -31,15 +31,12 @@ jobs:
       - name: Poll Jarvis agent
         env:
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
-          AGENT_URL: ${{ vars.WHATSAPP_AGENT_URL || 'https://z-agent-zeta.vercel.app' }}
+          # Use the stable, public Production alias—not a protected deployment-specific URL.
+          AGENT_URL: https://z-agent-zeta.vercel.app
         run: |
           set -eu
           if [ -z "${CRON_SECRET:-}" ]; then
             echo "Missing GitHub Actions secret: CRON_SECRET"
-            exit 1
-          fi
-          if [ -z "${AGENT_URL:-}" ]; then
-            echo "Missing GitHub Actions variable: WHATSAPP_AGENT_URL"
             exit 1
           fi
           curl --fail --silent --show-error --max-time 90 \
