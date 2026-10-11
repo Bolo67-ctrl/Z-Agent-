@@ -1,11 +1,6 @@
 name: Poll WhatsApp Agent
 
 on:
-  # Workflow changes trigger one poll after fixing the route, helping validate activation.
-  push:
-    branches: [main]
-    paths:
-      - ".github/workflows/whatsapp-agent-poll.yml"
   schedule:
     - cron: "*/5 * * * *"
   workflow_dispatch:
@@ -15,16 +10,9 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  verify-actions:
-    if: ${{ github.event_name == 'push' }}
-    runs-on: ubuntu-latest
-    steps:
-      - name: Confirm GitHub Actions is running
-        run: echo "GitHub Actions is running."
-
   poll:
     # Production polling is owner-approved. Manual dispatch also requires explicit opt-in.
-    if: ${{ github.event_name == 'schedule' || github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && vars.WHATSAPP_POLLING_ENABLED == 'true') }}
+    if: ${{ github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && vars.WHATSAPP_POLLING_ENABLED == 'true') }}
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
