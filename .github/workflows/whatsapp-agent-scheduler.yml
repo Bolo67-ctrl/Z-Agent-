@@ -1,0 +1,43 @@
+name: Jarvis WhatsApp Scheduler
+
+on:
+  schedule:
+    # Every five minutes, away from the start of each hour to reduce scheduling delays.
+    - cron: "4,9,14,19,24,29,34,39,44,49,54,59 * * * *"
+  workflow_dispatch:
+
+concurrency:
+  # Share the lock with the manual/config poll workflow to prevent overlapping polls.
+  group: whatsapp-agent-poll
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  poll:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - name: Poll Jarvis agent
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          AGENT_URL: https://z-agent-zeta.vercel.app
+        run: |
+          set -eu
+          if [ -z "${CRON_SECRET:-}" ]; then
+            echo "Missing GitHub Actions secret: CRON_SECRET"
+            exit 1
+          fi
+
+          response="$(curl --fail --silent --show-error \
+            --connect-timeout 10 --max-time 140 \
+            --retry 1 --retry-all-errors --retry-delay 3 \
+            -H "Authorization: Bearer ${CRON_SECRET}" \
+            "${AGENT_URL%/}/api/whatsapp-agent")"
+
+          printf '%s\n' "$response" | jq .
+          if ! printf '%s\n' "$response" | jq -e '.ok == true' >/dev/null; then
+            echo "Jarvis poll endpoint did not report ok=true."
+            exit 1
+          fi
