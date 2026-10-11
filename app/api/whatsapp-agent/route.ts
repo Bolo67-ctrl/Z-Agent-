@@ -359,27 +359,55 @@ async function productionPoll() {
 }
 
 async function makeReply(message: string, history: PriorTurn[] = []) {
-  const { text } = await generateText({
-    // Keep AI generation bounded so the route can persist state and respond safely.
-    abortSignal: AbortSignal.timeout(25000),
-    maxRetries: 2,
-    model: gemini(GEMINI_MODEL),
-    system:
-      "You are Jarvis, a helpful personal AI assistant speaking with your owner in a private WhatsApp agent chat. " +
-      "Have a natural, ongoing conversation and use the prior user/assistant messages to understand follow-ups, references, and context. " +
-      "Be warm, concise, and useful. If context is genuinely missing, ask one short clarifying question. " +
-      "You can answer questions and help plan tasks, but do not claim to have completed actions, " +
-      "set reminders, browsed the internet, or accessed accounts unless a configured tool actually did so. " +
-      "Ask for confirmation before sensitive or irreversible actions. Do not ask the user to send passwords, API keys, or authentication codes.",
-    messages: [
-      ...history.map(({ role, content }) => ({ role, content })),
-      { role: "user" as const, content: message },
-    ],
-  });
+  // Try the configured model first, then a faster Flash-Lite fallback if it stalls.
+  const modelIds = [...new Set([GEMINI_MODEL, "gemini-3.5-flash-lite"])];
+  let lastError: unknown = new Error("No AI models are configured.");
 
-  return text.trim().slice(0, MAX_REPLY_LENGTH);
+  for (const modelId of modelIds) {
+    try {
+      const result = await generateText({
+        // Bound each model attempt so a slow primary does not block the fallback.
+        abortSignal: AbortSignal.timeout(18000),
+        maxRetries: 0,
+        model: gemini(modelId),
+        system:
+          "You are Jarvis, a helpful personal AI assistant speaking with your owner in a private WhatsApp agent chat. " +
+          "Have a natural, ongoing conversation and use the prior user/assistant messages to understand follow-ups, references, and context. " +
+          "Be warm, concise, and useful. If context is genuinely missing, ask one short clarifying question. " +
+          "You can answer questions and help plan tasks, but do not claim to have completed actions, " +
+          "set reminders, browsed the internet, or accessed accounts unless a configured tool actually did so. " +
+          "Ask for confirmation before sensitive or irreversible actions. Do not ask the user to send passwords, API keys, or authentication codes.",
+        messages: [
+          ...history.map(({ role, content }) => ({ role, content })),
+          { role: "user" as const, content: message },
+        ],
+      });
+
+      const reply = result.text.trim().slice(0, MAX_REPLY_LENGTH);
+      if (!reply) throw new Error("The AI returned an empty reply.");
+      if (modelId !== GEMINI_MODEL) {
+        console.info("[WhatsApp Agent] AI fallback model succeeded", { model: modelId });
+      }
+      return reply;
+    } catch (error) {
+      lastError = error;
+      // Log only provider diagnostics, never prompts, user messages, API keys, or reply content.
+      const providerError = (error && typeof error === "object" ? error : {}) as {
+        name?: unknown;
+        statusCode?: unknown;
+        isRetryable?: unknown;
+      };
+      console.error("[WhatsApp Agent] AI model attempt failed", {
+        model: modelId,
+        name: typeof providerError.name === "string" ? providerError.name : "UnknownError",
+        statusCode: typeof providerError.statusCode === "number" ? providerError.statusCode : undefined,
+        isRetryable: typeof providerError.isRetryable === "boolean" ? providerError.isRetryable : undefined,
+      });
+    }
+  }
+
+  throw lastError;
 }
-
 /**
  * Polls WhatsApp Agent Platform updates.
  * Configure WHATSAPP_AGENT_API_TOKEN, CRON_SECRET, and GEMINI_API_KEY in Vercel.
