@@ -12,7 +12,7 @@
   "kv_namespaces": [
     {
       "binding": "POLL_STATE",
-      "id": "REPLACE_WITH_YOUR_CLOUDFLARE_KV_NAMESPACE_ID"
+      "id": "7d7c355d35ee44a3b464e349e6b7159c"
     }
   ],
   "triggers": {
