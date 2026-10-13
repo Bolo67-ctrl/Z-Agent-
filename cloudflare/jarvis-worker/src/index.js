@@ -38,11 +38,13 @@ async function readResponse(response) {
 
 async function saveLastPoll(env, result) {
   try {
+    result.stateSaved = true;
     await env.POLL_STATE.put(LAST_POLL_KEY, JSON.stringify(result), {
       expirationTtl: 60 * 60 * 24 * 7,
     });
     return true;
   } catch (error) {
+    result.stateSaved = false;
     console.error("Could not save the poll result to KV.", error);
     return false;
   }

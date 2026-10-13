@@ -35,11 +35,12 @@ The WhatsApp Agent API used by this integration exposes inbound messages through
 
 The endpoint is protected by `CRON_SECRET`; **do not remove the authorization check**.
 
-- `scripts/whatsapp-agent-worker.mjs` is the continuous-listener program. It needs an always-on Node.js runtime with `AGENT_URL` set to `https://z-agent-zeta.vercel.app` and `CRON_SECRET` set to the same value as Vercel Production.
-- The worker is source code only; it is **not currently deployed or running**. Creating an always-on hosted worker may cost money depending on the host and plan.
-- `.github/workflows/whatsapp-agent-poll.yml` runs a free GitHub Actions poll every five minutes. GitHub may delay scheduled runs, so this fallback is automatic but not instant. Manual dispatch stays opt-in behind `WHATSAPP_POLLING_ENABLED=true`.
+- `scripts/whatsapp-agent-worker.mjs` remains source code for an optional continuous Node.js listener; it is not deployed.
+- A Cloudflare Worker and private dashboard have been added as source code under cloudflare/jarvis-worker. They are not live until Cloudflare is configured and deploys that project.
+- The Cloudflare Worker calls the existing protected Vercel poll endpoint every two minutes. It stores only a short poll summary in Cloudflare KV and uses the read-only health endpoint for the dashboard.
+- To deploy, follow cloudflare/jarvis-worker/README.md. Create the KV namespace, replace the placeholder namespace ID in wrangler.jsonc, connect the repository in Cloudflare Workers Builds with root directory /cloudflare/jarvis-worker, then set CRON_SECRET and DASHBOARD_TOKEN as Cloudflare secrets. Never commit secrets.
+- The GitHub Actions workflow .github/workflows/whatsapp-agent-poll.yml is still the current scheduled fallback until Cloudflare polling has been verified. After a successful Cloudflare scheduled run, disable the GitHub workflow schedule so both systems do not poll the same cursor.
 - Do not run multiple pollers concurrently. A single active listener should own the update cursor.
-
 ## Reliability and privacy
 
 - Only inbound text messages beginning with `/` are handled in normal command mode.
