@@ -18,7 +18,7 @@ Two-minute polling is a free-tier-friendly compromise: about 720 scheduled runs 
 1. In Cloudflare, open Workers & Pages, then go to Storage & Databases / KV. Create a namespace named JARVIS_POLL_STATE.
 2. Copy the namespace ID. Replace REPLACE_WITH_YOUR_CLOUDFLARE_KV_NAMESPACE_ID in wrangler.jsonc with that ID, then commit the change to GitHub.
 3. Open Workers & Pages and create an application by importing a Git repository. Connect Bolo67-ctrl/Z-Agent-.
-4. Set the project root directory to /cloudflare/jarvis-worker. The Worker name must be jarvis-whatsapp-dashboard to match wrangler.jsonc. The default deploy command npx wrangler deploy is suitable; the package includes Wrangler.
+4. Set the project root directory to /cloudflare/jarvis-worker. The Worker name in wrangler.jsonc is z-agent to match the existing Cloudflare project. The default deploy command npx wrangler deploy is suitable; the package includes Wrangler.
 5. After the Worker is created, open its Settings / Variables and Secrets. Add these as secrets, not plain text variables:
    - CRON_SECRET: the exact same value as CRON_SECRET in Vercel Production.
    - DASHBOARD_TOKEN: create a new, strong, private token used only to sign in to this dashboard.
