@@ -18,6 +18,7 @@
   "triggers": {
     "crons": ["*/2 * * * *"]
   },
+  // Public, non-sensitive configuration only. Keep DASHBOARD_TOKEN and CRON_SECRET as Cloudflare Secrets.
   "vars": {
     "AGENT_URL": "https://z-agent-zeta.vercel.app"
   }
