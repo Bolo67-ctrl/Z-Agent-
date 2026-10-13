@@ -1,0 +1,324 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#090b10">
+  <title>Jarvis Control Room</title>
+  <style>
+    :root{color-scheme:dark;--bg:#090b10;--panel:#11151e;--line:#262d3a;--text:#f4f6fb;--muted:#9ca6b8;--green:#53d69a;--red:#ff7474;--amber:#f2c66d;--blue:#8bb8ff}
+    *{box-sizing:border-box}
+    body{margin:0;background:radial-gradient(ellipse at 20% 0%,#17253a 0,transparent 45%),var(--bg);color:var(--text);font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;min-height:100vh}
+    button,input{font:inherit}
+    .wrap{max-width:1020px;margin:0 auto;padding:28px 20px 60px}
+    header{display:flex;align-items:center;justify-content:space-between;gap:16px;border-bottom:1px solid var(--line);padding:5px 0 24px}
+    .brand{display:flex;align-items:center;gap:12px}
+    .logo{width:45px;height:45px;border-radius:14px;display:grid;place-items:center;background:linear-gradient(140deg,#f59d3d,#e45b25);color:#141414;font-weight:950;font-size:20px;box-shadow:0 8px 28px #f078312b}
+    .eyebrow{font-size:10px;letter-spacing:.23em;color:var(--muted);font-weight:800}
+    h1{font-size:23px;margin:4px 0 0;letter-spacing:-.04em}
+    .pill{border:1px solid #304133;background:#14251e;color:var(--green);border-radius:999px;padding:8px 11px;font-size:11px;font-weight:800;white-space:nowrap}
+    .hero{padding:34px 0 24px}
+    .hero p{color:var(--muted);line-height:1.7;max-width:700px;margin:9px 0 0;font-size:14px}
+    .hero h2{font-size:clamp(27px,5vw,38px);letter-spacing:-.05em;margin:0}
+    .grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
+    .card{min-width:0;background:linear-gradient(180deg,#151a24,#10141c);border:1px solid var(--line);border-radius:17px;padding:18px}
+    .card-label{color:var(--muted);font-size:11px;font-weight:750;letter-spacing:.11em;text-transform:uppercase}
+    .card-value{font-size:23px;font-weight:780;letter-spacing:-.04em;margin-top:13px;overflow-wrap:anywhere}
+    .sub{color:var(--muted);font-size:12px;line-height:1.5;margin-top:8px}
+    .section{margin-top:16px}
+    .section h3{margin:0 0 13px;font-size:15px}
+    .section-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:13px}
+    .section-head h3{margin:0}
+    .btn{border:1px solid #394253;color:var(--text);background:#1a202b;border-radius:10px;padding:10px 13px;font-size:12px;font-weight:750;cursor:pointer}
+    .btn:hover{border-color:#7184a0;background:#202938}
+    .btn:disabled{opacity:.5;cursor:wait}
+    .error{color:var(--red);font-size:12px;line-height:1.6;margin-top:12px;white-space:pre-wrap}
+    .success{color:var(--green)}
+    .warning{color:var(--amber)}
+    .muted{color:var(--muted)}
+    .result{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-top:14px}
+    .metric{border:1px solid var(--line);border-radius:12px;padding:13px;background:#0c1017}
+    .metric strong{display:block;font-size:21px}
+    .metric span{display:block;color:var(--muted);font-size:10px;margin-top:5px;text-transform:uppercase;letter-spacing:.1em}
+    .check-list{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}
+    .check{display:flex;gap:10px;align-items:flex-start;border:1px solid var(--line);border-radius:11px;padding:12px;font-size:12px}
+    .dot{width:8px;height:8px;flex:none;border-radius:50%;background:var(--muted);margin-top:4px}
+    .dot.good{background:var(--green);box-shadow:0 0 10px #53d69a55}
+    .dot.bad{background:var(--red)}
+    .check-name{font-weight:700;overflow-wrap:anywhere}
+    .check-state{color:var(--muted);margin-top:4px;font-size:11px;overflow-wrap:anywhere}
+    .commands{display:flex;flex-wrap:wrap;gap:8px}
+    .command{font:12px ui-monospace,SFMono-Regular,Menlo,monospace;border:1px solid #303847;border-radius:9px;background:#0b1018;padding:9px 11px;color:#bed4fb}
+    .foot{color:#7e899b;font-size:11px;line-height:1.7;margin-top:24px;border-top:1px solid var(--line);padding-top:16px}
+    .login-wrap{max-width:440px;margin:12vh auto 0}
+    .login-card{border:1px solid var(--line);background:#121722;border-radius:18px;padding:24px}
+    .login-card p{color:var(--muted);font-size:13px;line-height:1.7}
+    label{display:block;color:var(--muted);font-size:12px;margin:18px 0 8px}
+    input{width:100%;background:#0b1018;border:1px solid #303847;border-radius:10px;padding:12px;color:var(--text);outline:none}
+    input:focus{border-color:var(--blue)}
+    .login-card .btn{margin-top:12px;width:100%;padding:12px}
+    [hidden]{display:none!important}
+    @media(max-width:720px){.grid{grid-template-columns:1fr}.result{grid-template-columns:repeat(2,minmax(0,1fr))}.check-list{grid-template-columns:1fr}header{align-items:flex-start}.pill{font-size:10px}.wrap{padding:20px 14px 40px}.card{padding:16px}}
+  </style>
+</head>
+<body>
+  <main class="wrap">
+    <section id="login" class="login-wrap">
+      <div class="brand" style="margin-bottom:20px">
+        <div class="logo">J</div>
+        <div><div class="eyebrow">PRIVATE ADMIN</div><h1>Jarvis Control Room</h1></div>
+      </div>
+      <div class="login-card">
+        <h2 style="margin:0;font-size:20px">Sign in to Jarvis</h2>
+        <p>Enter the dashboard token you configured as the DASHBOARD_TOKEN secret in Cloudflare. It is sent only to this Worker and kept for this browser tab session.</p>
+        <form id="login-form">
+          <label for="token">Dashboard token</label>
+          <input id="token" type="password" autocomplete="current-password" required placeholder="Paste your private token">
+          <button class="btn" type="submit">Open dashboard</button>
+        </form>
+        <div id="login-error" class="error" role="alert"></div>
+      </div>
+    </section>
+
+    <section id="dashboard" hidden>
+      <header>
+        <div class="brand">
+          <div class="logo">J</div>
+          <div><div class="eyebrow">BOT ADMINISTRATION</div><h1>Jarvis Control Room</h1></div>
+        </div>
+        <div class="pill">CLOUD WORKER</div>
+      </header>
+
+      <section class="hero">
+        <h2>Your bot, without your Chromebook.</h2>
+        <p>Cloudflare checks Jarvis's existing secure WhatsApp endpoint every two minutes. This page is a monitor, not another bot process. Replies can still be delayed by the WhatsApp API or provider scheduling; instant delivery is not guaranteed.</p>
+      </section>
+
+      <section class="grid">
+        <article class="card">
+          <div class="card-label">Scheduler</div>
+          <div class="card-value success" id="scheduler-value">Loading…</div>
+          <div class="sub" id="scheduler-sub">Waiting for status</div>
+        </article>
+        <article class="card">
+          <div class="card-label">Last poll result</div>
+          <div class="card-value" id="last-result">Not checked yet</div>
+          <div class="sub" id="last-time">No saved poll result</div>
+        </article>
+        <article class="card">
+          <div class="card-label">WhatsApp mode</div>
+          <div class="card-value">Commands only</div>
+          <div class="sub">AI replies are disabled. Ordinary messages are ignored.</div>
+        </article>
+      </section>
+
+      <section class="card section">
+        <div class="section-head">
+          <h3>Latest scheduled poll</h3>
+          <button id="refresh" class="btn" type="button">Refresh status</button>
+        </div>
+        <div id="poll-summary" class="sub">No scheduled result has been saved yet.</div>
+        <div id="poll-metrics" class="result" hidden>
+          <div class="metric"><strong id="received">0</strong><span>Messages received</span></div>
+          <div class="metric"><strong id="handled">0</strong><span>Commands handled</span></div>
+          <div class="metric"><strong id="skipped">0</strong><span>Messages skipped</span></div>
+          <div class="metric"><strong id="http-status">—</strong><span>Endpoint status</span></div>
+        </div>
+        <div id="poll-errors" class="error"></div>
+      </section>
+
+      <section class="card section">
+        <div class="section-head">
+          <h3>Connection health</h3>
+          <span id="health-badge" class="pill">Checking</span>
+        </div>
+        <p id="health-message" class="sub">Running a read-only database check. This does not poll WhatsApp or send a message.</p>
+        <div id="checks" class="check-list"></div>
+      </section>
+
+      <section class="card section">
+        <h3>Available WhatsApp commands</h3>
+        <div class="commands">
+          <span class="command">/help</span><span class="command">/start</span><span class="command">/ping</span><span class="command">/time</span><span class="command">/status</span><span class="command">/about</span>
+        </div>
+        <p class="sub">Refresh status only checks connection health; it does not send a WhatsApp message or manually run a poll.</p>
+      </section>
+
+      <div id="page-error" class="error" role="alert"></div>
+      <footer class="foot">
+        Keep CRON_SECRET and DASHBOARD_TOKEN in Cloudflare secrets only. Do not paste them into this repository. Once Cloudflare's scheduled polls have been verified, turn off the old GitHub scheduled workflow so only one poller owns the WhatsApp update cursor.
+        <div style="margin-top:10px"><button id="logout" type="button" class="btn">Lock dashboard</button></div>
+      </footer>
+    </section>
+  </main>
+
+  <script>
+    (function () {
+      var storageKey = "jarvis-dashboard-token";
+      var login = document.getElementById("login");
+      var dashboard = document.getElementById("dashboard");
+      var form = document.getElementById("login-form");
+      var input = document.getElementById("token");
+      var loginError = document.getElementById("login-error");
+      var pageError = document.getElementById("page-error");
+      var refreshButton = document.getElementById("refresh");
+      var busy = false;
+
+      function showLogin(message) {
+        login.hidden = false;
+        dashboard.hidden = true;
+        loginError.textContent = message || "";
+      }
+
+      function showDashboard() {
+        login.hidden = true;
+        dashboard.hidden = false;
+        loginError.textContent = "";
+      }
+
+      function fmt(value) {
+        if (!value) return "—";
+        var date = new Date(value);
+        return isNaN(date.getTime()) ? String(value) : date.toLocaleString();
+      }
+
+      function setText(id, value) {
+        document.getElementById(id).textContent = value == null ? "" : String(value);
+      }
+
+      function statusFrom(data) {
+        var scheduler = data.scheduler || {};
+        setText("scheduler-value", "Every " + (scheduler.intervalMinutes || 2) + " minutes");
+        setText("scheduler-sub", "Cron: " + (scheduler.cron || "*/2 * * * *") + " · UTC");
+
+        var poll = data.lastPoll;
+        if (!poll) {
+          setText("last-result", "Waiting");
+          setText("last-time", "No Cloudflare poll has been recorded yet.");
+          setText("poll-summary", "The first scheduled poll will appear here after the Worker is deployed and its cron trigger runs.");
+          document.getElementById("poll-metrics").hidden = true;
+          setText("poll-errors", "");
+        } else {
+          setText("last-result", poll.ok ? "Successful" : "Needs attention");
+          document.getElementById("last-result").className = "card-value " + (poll.ok ? "success" : "warning");
+          setText("last-time", "Last check: " + fmt(poll.checkedAt) + " · Trigger: " + (poll.trigger || "scheduled"));
+          setText("poll-summary", poll.ok ? "The poll endpoint responded successfully." : (poll.error || "The poll endpoint reported a problem."));
+          document.getElementById("poll-metrics").hidden = false;
+          setText("received", poll.received || 0);
+          setText("handled", poll.handled || 0);
+          setText("skipped", poll.skipped || 0);
+          setText("http-status", poll.httpStatus || "—");
+          var errors = [];
+          if (poll.error) errors.push(poll.error);
+          if (Array.isArray(poll.errors)) errors = errors.concat(poll.errors);
+          if (poll.stateSaved === false) errors.push("Could not save this poll result to Cloudflare KV.");
+          setText("poll-errors", errors.join("\n"));
+        }
+
+        var health = data.agentHealth || {};
+        var badge = document.getElementById("health-badge");
+        badge.textContent = health.ok ? "Connected" : "Check needed";
+        badge.style.color = health.ok ? "var(--green)" : "var(--amber)";
+        setText("health-message", health.message || "No health response.");
+        var checks = document.getElementById("checks");
+        checks.textContent = "";
+        var checkValues = health.checks || {};
+        var names = Object.keys(checkValues);
+        if (!names.length) {
+          var fallback = document.createElement("div");
+          fallback.className = "check";
+          fallback.textContent = "No database checks returned. Check the Vercel endpoint and Cloudflare secrets.";
+          checks.appendChild(fallback);
+        } else {
+          names.forEach(function (name) {
+            var value = checkValues[name];
+            var good = value === "ready" || value === true;
+            var item = document.createElement("div");
+            item.className = "check";
+            var dot = document.createElement("span");
+            dot.className = "dot " + (good ? "good" : "bad");
+            var copy = document.createElement("div");
+            var label = document.createElement("div");
+            label.className = "check-name";
+            label.textContent = name.replace(/([A-Z])/g, " $1").replace(/^./, function (m) { return m.toUpperCase(); });
+            var state = document.createElement("div");
+            state.className = "check-state";
+            state.textContent = String(value);
+            copy.appendChild(label);
+            copy.appendChild(state);
+            item.appendChild(dot);
+            item.appendChild(copy);
+            checks.appendChild(item);
+          });
+        }
+        if (data.storageReady === false) {
+          pageError.textContent = "Poll history storage isn't available. Check the POLL_STATE KV binding and namespace ID.";
+        } else {
+          pageError.textContent = "";
+        }
+      }
+
+      async function refreshStatus() {
+        if (busy) return;
+        var token = sessionStorage.getItem(storageKey);
+        if (!token) {
+          showLogin("");
+          return;
+        }
+        busy = true;
+        refreshButton.disabled = true;
+        refreshButton.textContent = "Refreshing…";
+        pageError.textContent = "";
+        try {
+          var response = await fetch("/api/status", {
+            method: "GET",
+            cache: "no-store",
+            headers: { "Authorization": "Bearer " + token, "Accept": "application/json" }
+          });
+          var data = await response.json();
+          if (response.status === 401) {
+            sessionStorage.removeItem(storageKey);
+            showLogin("That token was not accepted. Check the DASHBOARD_TOKEN secret in Cloudflare.");
+            return;
+          }
+          if (!response.ok) throw new Error(data.error || "Dashboard status request failed.");
+          showDashboard();
+          statusFrom(data);
+        } catch (error) {
+          pageError.textContent = error && error.message ? error.message : "Could not refresh status.";
+          if (dashboard.hidden) showLogin(pageError.textContent);
+        } finally {
+          busy = false;
+          refreshButton.disabled = false;
+          refreshButton.textContent = "Refresh status";
+        }
+      }
+
+      form.addEventListener("submit", function (event) {
+        event.preventDefault();
+        var token = input.value.trim();
+        if (!token) return;
+        sessionStorage.setItem(storageKey, token);
+        input.value = "";
+        refreshStatus();
+      });
+
+      refreshButton.addEventListener("click", refreshStatus);
+      document.getElementById("logout").addEventListener("click", function () {
+        sessionStorage.removeItem(storageKey);
+        showLogin("Dashboard locked.");
+      });
+
+      if (sessionStorage.getItem(storageKey)) {
+        refreshStatus();
+      } else {
+        showLogin("");
+      }
+
+      window.setInterval(function () {
+        if (!dashboard.hidden) refreshStatus();
+      }, 60000);
+    }());
+  </script>
+</body>
+</html>
