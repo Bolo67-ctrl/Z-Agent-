@@ -62,10 +62,10 @@ async function readResponse(response) {
     // Vercel may return a non-JSON gateway/protection page. Keep only a short,
     // plain-text excerpt so the dashboard can show a useful diagnostic.
     const excerpt = raw
-      .replace(/<script\\b[^>]*>[\\s\\S]*?<\\/script>/gi, " ")
-      .replace(/<style\\b[^>]*>[\\s\\S]*?<\\/style>/gi, " ")
+      .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, " ")
+      .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, " ")
       .replace(/<[^>]*>/g, " ")
-      .replace(/\\s+/g, " ")
+      .replace(/\s+/g, " ")
       .trim()
       .slice(0, 240);
     return { _responseExcerpt: excerpt || null };
