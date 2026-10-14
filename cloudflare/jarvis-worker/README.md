@@ -27,7 +27,7 @@ Two-minute polling is a free-tier-friendly compromise: about 720 scheduled runs 
 
 ## Prevent two pollers
 
-The current GitHub Actions workflow still contains the old scheduled fallback. Do not leave both pollers active long-term, because the Vercel endpoint uses a shared WhatsApp cursor. First verify at least one Cloudflare scheduled poll is successful. Then open GitHub Actions, select “Poll WhatsApp Agent (Manual Fallback),” and disable that workflow's scheduled runs. Do not disable it before Cloudflare has been verified.
+Cloudflare is the primary scheduled poller. The GitHub Actions fallback has been changed to manual-only and requires the repository variable WHATSAPP_POLLING_ENABLED=true before it can run. Do not enable it while Cloudflare is polling, because the Vercel endpoint uses a shared WhatsApp cursor. Use the GitHub fallback only if Cloudflare is deliberately paused.
 
 ## Troubleshooting
 
