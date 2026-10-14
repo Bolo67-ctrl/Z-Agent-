@@ -33,7 +33,7 @@ Apply `supabase/migrations/20261010000000_whatsapp_agent_reliability.sql` to cre
 
 The WhatsApp Agent API used by this integration exposes inbound messages through `GET /updates` long polling. The Vercel endpoint keeps each poll open for up to 25 seconds, then returns and can be called again. When an update arrives while a long poll is waiting, a command can be handled without waiting for an AI model.
 
-The endpoint is protected by `CRON_SECRET`; **do not remove the authorization check**.
+The endpoint is protected by `CRON_SECRET`; **do not remove the authorization check**. The Vercel project also has Deployment Protection enabled for Vercel-owned domains, so the Cloudflare Worker must send a second `x-vercel-protection-bypass` header using the `VERCEL_AUTOMATION_BYPASS_SECRET` Cloudflare secret. This does not replace `CRON_SECRET`; both gates must pass.
 
 - `scripts/whatsapp-agent-worker.mjs` remains source code for an optional continuous Node.js listener; it is not deployed.
 - A Cloudflare Worker and private dashboard have been added as source code under cloudflare/jarvis-worker. They are not live until Cloudflare is configured and deploys that project.

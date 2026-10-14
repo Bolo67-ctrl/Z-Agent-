@@ -37,6 +37,19 @@ function agentBase(env) {
   return (env.AGENT_URL || DEFAULT_AGENT_URL).replace(/\/+$/, "");
 }
 
+function vercelHeaders(env) {
+  const headers = {
+    Authorization: "Bearer " + env.CRON_SECRET,
+    Accept: "application/json",
+  };
+  // This second credential bypasses Vercel's outer Deployment Protection gate.
+  // CRON_SECRET still authenticates the Jarvis API route. Keep both as Worker secrets.
+  if (env.VERCEL_AUTOMATION_BYPASS_SECRET) {
+    headers["x-vercel-protection-bypass"] = env.VERCEL_AUTOMATION_BYPASS_SECRET;
+  }
+  return headers;
+}
+
 function delay(ms) {
   return new Promise(function (resolve) { setTimeout(resolve, ms); });
 }
@@ -103,14 +116,18 @@ async function runPoll(env, scheduledTime) {
       ok: false,
       error: "The CRON_SECRET secret is missing in Cloudflare.",
     };
+  } else if (!env.VERCEL_AUTOMATION_BYPASS_SECRET) {
+    result = {
+      trigger: "scheduled",
+      checkedAt: startedAt,
+      ok: false,
+      error: "The VERCEL_AUTOMATION_BYPASS_SECRET secret is missing in Cloudflare. Vercel Deployment Protection blocks this project URL without it.",
+    };
   } else {
     try {
       const response = await fetch(agentBase(env) + "/api/whatsapp-agent", {
         method: "GET",
-        headers: {
-          Authorization: "Bearer " + env.CRON_SECRET,
-          Accept: "application/json",
-        },
+        headers: vercelHeaders(env),
         cache: "no-store",
         signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       });
@@ -164,13 +181,17 @@ async function readAgentHealth(env) {
   if (!env.CRON_SECRET) {
     return { ok: false, message: "CRON_SECRET is not configured in Cloudflare." };
   }
+  if (!env.VERCEL_AUTOMATION_BYPASS_SECRET) {
+    return {
+      ok: false,
+      message: "VERCEL_AUTOMATION_BYPASS_SECRET is not configured in Cloudflare. Vercel Deployment Protection blocks the health check.",
+      readOnly: true,
+    };
+  }
   try {
     const response = await fetch(agentBase(env) + "/api/whatsapp-agent/health", {
       method: "GET",
-      headers: {
-        Authorization: "Bearer " + env.CRON_SECRET,
-        Accept: "application/json",
-      },
+      headers: vercelHeaders(env),
       cache: "no-store",
       signal: AbortSignal.timeout(10000),
     });

@@ -19,11 +19,13 @@ This free-plan compromise keeps the listener active for almost the entire 15-min
 1. In Cloudflare, create or confirm the KV namespace named JARVIS_POLL_STATE.
 2. Confirm its namespace ID in wrangler.jsonc.
 3. The GitHub repository Bolo67-ctrl/Z-Agent- should use root directory /cloudflare/jarvis-worker. The Worker name is z-agent. Leave the build command empty and keep the deploy command as npx wrangler deploy.
-4. In Worker Settings / Variables and Secrets, add the following as secrets, not plain text variables:
-   - CRON_SECRET: the exact same value as CRON_SECRET in Vercel Production.
+4. In Vercel, open project z-agent → Settings → Deployment Protection. Under **Protection Bypass for Automation**, generate a secret. This is needed because SSO protection blocks Vercel-owned project domains before requests reach the Jarvis API.
+5. In Cloudflare Worker Settings / Variables and Secrets, add the following as secrets, not plain text variables:
+   - CRON_SECRET: the exact same value as CRON_SECRET in Vercel Production. This authenticates the Jarvis API route.
+   - VERCEL_AUTOMATION_BYPASS_SECRET: the generated Vercel Protection Bypass for Automation secret. The Worker sends it in the x-vercel-protection-bypass header to pass Vercel's outer protection gate.
    - DASHBOARD_TOKEN: a strong private token used only to sign in to this dashboard.
-5. Confirm the Worker cron trigger is */15 * * * *. Open the workers.dev URL and enter DASHBOARD_TOKEN.
-6. Check the Worker logs for jarvis_long_poll_cycle_started and jarvis_long_poll_cycle_finished. Dashboard state is written every 2.5 minutes and at the end of each cycle. The listener stops early if repeated upstream failures occur. Do not paste secrets into source control, this chat, or the dashboard URL.
+6. Confirm the Worker cron trigger is */15 * * * *. Open the workers.dev URL and enter DASHBOARD_TOKEN.
+7. Check Worker logs for jarvis_long_poll_cycle_started and jarvis_long_poll_cycle_finished. Never paste secrets into source control, this chat, or the dashboard URL.
 
 ## Prevent two pollers
 
