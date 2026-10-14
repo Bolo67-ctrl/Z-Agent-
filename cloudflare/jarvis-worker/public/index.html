@@ -91,7 +91,7 @@
 
       <section class="hero">
         <h2>Your bot, without your Chromebook.</h2>
-        <p>Cloudflare keeps a WhatsApp long-poll running for about 14 minutes of each 15-minute cycle. When the API returns a new message during that window, Jarvis can handle it promptly. Short gaps between cycles and provider delays still happen; this is the best-effort free setup, not a guarantee of instant delivery.</p>
+        <p>Cloudflare keeps a WhatsApp long-poll running for about 14 minutes 50 seconds of each 15-minute cycle. New messages can wake the open poll and be handled promptly. A short safety gap and provider scheduling delays remain, so zero-delay delivery cannot be guaranteed.</p>
       </section>
 
       <section class="grid">
@@ -191,7 +191,7 @@
         setText("scheduler-value", "Long-polling");
         var cronStart = data.lastCronStart;
         var cronSeen = cronStart && cronStart.startedAt ? fmt(cronStart.startedAt) : "Not seen yet";
-        setText("scheduler-sub", "Active about " + (scheduler.activeListenMinutes || 14) + " min per " + (scheduler.intervalMinutes || 15) + "-min cycle · Last trigger: " + cronSeen);
+        setText("scheduler-sub", "Active about " + (scheduler.activeListenText || ((scheduler.activeListenMinutes || 14) + " min")) + " per " + (scheduler.intervalMinutes || 15) + "-min cycle · Last trigger: " + cronSeen);
 
         var poll = data.lastPoll;
         if (!poll) {

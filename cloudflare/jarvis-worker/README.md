@@ -5,14 +5,14 @@ This project keeps the existing Vercel WhatsApp endpoint and Supabase message de
 ## What it does
 
 - A Cron Trigger starts every 15 minutes (UTC).
-- Each invocation makes sequential long-poll requests for about 14 minutes, then leaves a safety gap before the next scheduled run.
+- Each invocation makes sequential long-poll requests for about 14 minutes 50 seconds, leaving roughly a 10-second safety gap before the next scheduled run.
 - Each long poll waits up to 25 seconds for a WhatsApp update and calls the existing protected Vercel GET endpoint at /api/whatsapp-agent.
 - The listener stops after 42 outbound poll calls per run to stay below Cloudflare Free's 50 external-subrequest limit.
 - It stores only a short poll summary in Cloudflare KV. It does not store incoming WhatsApp message text, phone numbers, or message IDs.
 - The private dashboard shows poll results and read-only connection health. Refreshing the dashboard does not send messages or start another poller.
 - WhatsApp command replies use no AI.
 
-This free-plan compromise should make command replies prompt while the long-poll loop is active. A short gap between cycles, Cron scheduling delays, WhatsApp API delays, or errors may still occur. It is not a guarantee of instant delivery.
+This free-plan compromise keeps the listener active for almost the entire 15-minute cycle, so messages that arrive while polling are handled promptly without your Chromebook. A short safety gap between cycles, Cron scheduling delays, WhatsApp API delays, or errors may still occur; zero-delay delivery is not guaranteed.
 
 ## Set up Cloudflare
 
@@ -23,7 +23,7 @@ This free-plan compromise should make command replies prompt while the long-poll
    - CRON_SECRET: the exact same value as CRON_SECRET in Vercel Production.
    - DASHBOARD_TOKEN: a strong private token used only to sign in to this dashboard.
 5. Confirm the Worker cron trigger is */15 * * * *. Open the workers.dev URL and enter DASHBOARD_TOKEN.
-6. Check the Worker logs for jarvis_long_poll_cycle_started and jarvis_long_poll_cycle_finished. Dashboard state is written every 2.5 minutes and at the end of each cycle. Do not paste secrets into source control, this chat, or the dashboard URL.
+6. Check the Worker logs for jarvis_long_poll_cycle_started and jarvis_long_poll_cycle_finished. Dashboard state is written every 2.5 minutes and at the end of each cycle. The listener stops early if repeated upstream failures occur. Do not paste secrets into source control, this chat, or the dashboard URL.
 
 ## Prevent two pollers
 

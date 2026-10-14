@@ -4,7 +4,7 @@ const LEGACY_LAST_POLL_KEY = "last-poll-v1";
 const LEGACY_LAST_CRON_KEY = "last-cron-start-v1";
 
 // Stay well inside the 15-minute Cron Trigger wall-time limit.
-const LISTEN_WINDOW_MS = 14 * 60 * 1000;
+const LISTEN_WINDOW_MS = 14 * 60 * 1000 + 50 * 1000;
 const REQUEST_TIMEOUT_MS = 40000;
 const REQUEST_DEADLINE_BUFFER_MS = 42000;
 const MAX_POLLS_PER_RUN = 42;
@@ -202,8 +202,9 @@ async function dashboardStatus(env) {
       cron: "*/15 * * * *",
       intervalMinutes: 15,
       activeListenMinutes: 14,
+      activeListenText: "14 min 50 sec",
       timezone: "UTC",
-      note: "Cloudflare long-polls WhatsApp for about 14 minutes of each 15-minute cycle. A short gap and provider delays remain possible; instant delivery is not guaranteed.",
+      note: "Cloudflare long-polls WhatsApp for about 14 minutes 50 seconds of each 15-minute cycle, leaving a short safety gap. Scheduling and provider delays still mean zero delay cannot be guaranteed.",
     },
     storageReady: state.storageReady !== false,
     lastCronStart: state.lastCronStart || null,
