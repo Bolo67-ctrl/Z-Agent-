@@ -91,7 +91,7 @@
 
       <section class="hero">
         <h2>Your bot, without your Chromebook.</h2>
-        <p>Cloudflare checks Jarvis's existing secure WhatsApp endpoint every two minutes. This page is a monitor, not another bot process. Replies can still be delayed by the WhatsApp API or provider scheduling; instant delivery is not guaranteed.</p>
+        <p>Cloudflare keeps a WhatsApp long-poll running for about 14 minutes of each 15-minute cycle. When the API returns a new message during that window, Jarvis can handle it promptly. Short gaps between cycles and provider delays still happen; this is the best-effort free setup, not a guarantee of instant delivery.</p>
       </section>
 
       <section class="grid">
@@ -141,7 +141,7 @@
         <div class="commands">
           <span class="command">/help</span><span class="command">/start</span><span class="command">/ping</span><span class="command">/time</span><span class="command">/status</span><span class="command">/about</span>
         </div>
-        <p class="sub">Refresh status only checks connection health; it does not send a WhatsApp message or manually run a poll.</p>
+        <p class="sub">Refresh status checks connection health and the latest saved poll result. It does not start another WhatsApp poll or send a message.</p>
       </section>
 
       <div id="page-error" class="error" role="alert"></div>
@@ -188,10 +188,10 @@
 
       function statusFrom(data) {
         var scheduler = data.scheduler || {};
-        setText("scheduler-value", "Every " + (scheduler.intervalMinutes || 2) + " minutes");
+        setText("scheduler-value", "Long-polling");
         var cronStart = data.lastCronStart;
         var cronSeen = cronStart && cronStart.startedAt ? fmt(cronStart.startedAt) : "Not seen yet";
-        setText("scheduler-sub", "Cron: " + (scheduler.cron || "*/2 * * * *") + " · UTC · Last trigger: " + cronSeen);
+        setText("scheduler-sub", "Active about " + (scheduler.activeListenMinutes || 14) + " min per " + (scheduler.intervalMinutes || 15) + "-min cycle · Last trigger: " + cronSeen);
 
         var poll = data.lastPoll;
         if (!poll) {
@@ -319,7 +319,7 @@
 
       window.setInterval(function () {
         if (!dashboard.hidden) refreshStatus();
-      }, 60000);
+      }, 300000);
     }());
   </script>
 </body>

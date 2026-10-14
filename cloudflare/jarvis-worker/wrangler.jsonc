@@ -23,7 +23,7 @@
     }
   ],
   "triggers": {
-    "crons": ["*/2 * * * *"]
+    "crons": ["*/15 * * * *"]
   },
   // Public, non-sensitive configuration only. Keep DASHBOARD_TOKEN and CRON_SECRET as Cloudflare Secrets.
   "vars": {

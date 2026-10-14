@@ -1,6 +1,17 @@
 const DEFAULT_AGENT_URL = "https://z-agent-zeta.vercel.app";
-const LAST_POLL_KEY = "last-poll-v1";
-const LAST_CRON_KEY = "last-cron-start-v1";
+const DASHBOARD_STATE_KEY = "dashboard-state-v1";
+const LEGACY_LAST_POLL_KEY = "last-poll-v1";
+const LEGACY_LAST_CRON_KEY = "last-cron-start-v1";
+
+// Stay well inside the 15-minute Cron Trigger wall-time limit.
+const LISTEN_WINDOW_MS = 14 * 60 * 1000;
+const REQUEST_TIMEOUT_MS = 40000;
+const REQUEST_DEADLINE_BUFFER_MS = 42000;
+const MAX_POLLS_PER_RUN = 42;
+const STATE_SAVE_INTERVAL_MS = 150000;
+const MAX_CONSECUTIVE_FAILURES = 3;
+const RETRY_DELAY_MS = 5000;
+const STATE_TTL_SECONDS = 7 * 24 * 60 * 60;
 
 function json(body, status) {
   return Response.json(body, {
@@ -16,11 +27,9 @@ function authorizeDashboard(request, env) {
       error: "Dashboard is not configured yet. Add the DASHBOARD_TOKEN secret in Cloudflare.",
     }, 503);
   }
-
   if (request.headers.get("authorization") !== "Bearer " + env.DASHBOARD_TOKEN) {
     return json({ ok: false, error: "Unauthorized." }, 401);
   }
-
   return null;
 }
 
@@ -28,36 +37,68 @@ function agentBase(env) {
   return (env.AGENT_URL || DEFAULT_AGENT_URL).replace(/\/+$/, "");
 }
 
+function delay(ms) {
+  return new Promise(function (resolve) { setTimeout(resolve, ms); });
+}
+
 async function readResponse(response) {
   const raw = await response.text();
+  try { return raw ? JSON.parse(raw) : {}; } catch { return {}; }
+}
+
+async function loadDashboardState(env) {
   try {
-    return raw ? JSON.parse(raw) : {};
-  } catch {
-    return {};
+    const current = await env.POLL_STATE.get(DASHBOARD_STATE_KEY, "json");
+    if (current && typeof current === "object") {
+      return {
+        lastPoll: current.lastPoll || null,
+        lastCronStart: current.lastCronStart || null,
+        storageReady: true,
+      };
+    }
+
+    // Read keys written by the earlier Worker version once during migration.
+    const [lastPoll, lastCronStart] = await Promise.all([
+      env.POLL_STATE.get(LEGACY_LAST_POLL_KEY, "json"),
+      env.POLL_STATE.get(LEGACY_LAST_CRON_KEY, "json"),
+    ]);
+    return {
+      lastPoll: lastPoll || null,
+      lastCronStart: lastCronStart || null,
+      storageReady: true,
+    };
+  } catch (error) {
+    return { lastPoll: null, lastCronStart: null, storageReady: false };
   }
 }
 
-async function saveLastPoll(env, result) {
+async function saveDashboardState(env, state) {
   try {
-    result.stateSaved = true;
-    await env.POLL_STATE.put(LAST_POLL_KEY, JSON.stringify(result), {
-      expirationTtl: 60 * 60 * 24 * 7,
+    const value = {
+      lastPoll: state.lastPoll || null,
+      lastCronStart: state.lastCronStart || null,
+    };
+    if (value.lastPoll) value.lastPoll.stateSaved = true;
+    await env.POLL_STATE.put(DASHBOARD_STATE_KEY, JSON.stringify(value), {
+      expirationTtl: STATE_TTL_SECONDS,
     });
+    state.storageReady = true;
     return true;
   } catch (error) {
-    result.stateSaved = false;
-    console.error("Could not save the poll result to KV.", error);
+    state.storageReady = false;
+    if (state.lastPoll) state.lastPoll.stateSaved = false;
+    console.error("Could not save Jarvis dashboard state to KV.", error);
     return false;
   }
 }
 
-async function runPoll(env, trigger, scheduledTime) {
+async function runPoll(env, scheduledTime) {
   const startedAt = new Date().toISOString();
   let result;
 
   if (!env.CRON_SECRET) {
     result = {
-      trigger,
+      trigger: "scheduled",
       checkedAt: startedAt,
       ok: false,
       error: "The CRON_SECRET secret is missing in Cloudflare.",
@@ -71,12 +112,11 @@ async function runPoll(env, trigger, scheduledTime) {
           Accept: "application/json",
         },
         cache: "no-store",
-        signal: AbortSignal.timeout(40000),
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       });
       const body = await readResponse(response);
-
       result = {
-        trigger,
+        trigger: "scheduled",
         checkedAt: startedAt,
         ok: response.ok && body.ok === true,
         httpStatus: response.status,
@@ -97,7 +137,7 @@ async function runPoll(env, trigger, scheduledTime) {
       };
     } catch (error) {
       result = {
-        trigger,
+        trigger: "scheduled",
         checkedAt: startedAt,
         ok: false,
         error: "Could not reach the Vercel poll endpoint or the request timed out.",
@@ -106,29 +146,24 @@ async function runPoll(env, trigger, scheduledTime) {
   }
 
   if (scheduledTime) result.scheduledTime = new Date(scheduledTime).toISOString();
-
-  result.stateSaved = await saveLastPoll(env, result);
-  console.log(JSON.stringify({
-    trigger: result.trigger,
-    checkedAt: result.checkedAt,
-    ok: result.ok,
-    httpStatus: result.httpStatus || null,
-    received: result.received || 0,
-    handled: result.handled || 0,
-    stateSaved: result.stateSaved,
-  }));
-
+  if (!result.ok || result.received > 0 || result.handled > 0) {
+    console.log(JSON.stringify({
+      event: "jarvis_poll_result",
+      checkedAt: result.checkedAt,
+      ok: result.ok,
+      httpStatus: result.httpStatus || null,
+      received: result.received || 0,
+      handled: result.handled || 0,
+      error: result.error || null,
+    }));
+  }
   return result;
 }
 
 async function readAgentHealth(env) {
   if (!env.CRON_SECRET) {
-    return {
-      ok: false,
-      message: "CRON_SECRET is not configured in Cloudflare.",
-    };
+    return { ok: false, message: "CRON_SECRET is not configured in Cloudflare." };
   }
-
   try {
     const response = await fetch(agentBase(env) + "/api/whatsapp-agent/health", {
       method: "GET",
@@ -159,30 +194,20 @@ async function readAgentHealth(env) {
 }
 
 async function dashboardStatus(env) {
-  let lastPoll = null;
-  let lastCronStart = null;
-  let storageReady = true;
-
-  try {
-    lastPoll = await env.POLL_STATE.get(LAST_POLL_KEY, "json");
-    lastCronStart = await env.POLL_STATE.get(LAST_CRON_KEY, "json");
-  } catch (error) {
-    storageReady = false;
-  }
-
+  const state = await loadDashboardState(env);
   const health = await readAgentHealth(env);
-
   return json({
     ok: true,
     scheduler: {
-      cron: "*/2 * * * *",
-      intervalMinutes: 2,
+      cron: "*/15 * * * *",
+      intervalMinutes: 15,
+      activeListenMinutes: 14,
       timezone: "UTC",
-      note: "Cloudflare runs this schedule without your Chromebook being on. Reply time is not guaranteed to be instant.",
+      note: "Cloudflare long-polls WhatsApp for about 14 minutes of each 15-minute cycle. A short gap and provider delays remain possible; instant delivery is not guaranteed.",
     },
-    storageReady,
-    lastCronStart: lastCronStart || null,
-    lastPoll: lastPoll || null,
+    storageReady: state.storageReady !== false,
+    lastCronStart: state.lastCronStart || null,
+    lastPoll: state.lastPoll || null,
     agentHealth: health,
     mode: "command-only",
   });
@@ -191,49 +216,104 @@ async function dashboardStatus(env) {
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
-
     if (url.pathname.startsWith("/api/")) {
       const authFailure = authorizeDashboard(request, env);
       if (authFailure) return authFailure;
-
       if (url.pathname === "/api/status" && request.method === "GET") {
         return dashboardStatus(env);
       }
-
       return json({ ok: false, error: "Not found." }, 404);
     }
-
     return env.ASSETS.fetch(request);
   },
 
   async scheduled(controller, env) {
+    const startedMs = Date.now();
+    const stopAt = startedMs + LISTEN_WINDOW_MS;
     const cronStart = {
-      startedAt: new Date().toISOString(),
+      startedAt: new Date(startedMs).toISOString(),
       scheduledTime: controller.scheduledTime
         ? new Date(controller.scheduledTime).toISOString()
         : null,
-      cron: controller.cron || "*/2 * * * *",
+      cron: controller.cron || "*/15 * * * *",
+      listenerWindowMinutes: 14,
     };
 
-    try {
-      await env.POLL_STATE.put(LAST_CRON_KEY, JSON.stringify(cronStart), {
-        expirationTtl: 60 * 60 * 24 * 7,
-      });
-    } catch (error) {
-      console.error("Jarvis cron started, but the KV heartbeat could not be saved.", error);
+    const state = await loadDashboardState(env);
+    state.lastCronStart = cronStart;
+    await saveDashboardState(env, state);
+    let lastSavedAt = Date.now();
+
+    console.log(JSON.stringify({ event: "jarvis_long_poll_cycle_started", ...cronStart }));
+
+    if (!env.CRON_SECRET) {
+      state.lastPoll = {
+        trigger: "scheduled",
+        checkedAt: new Date().toISOString(),
+        ok: false,
+        error: "The CRON_SECRET secret is missing in Cloudflare.",
+      };
+      await saveDashboardState(env, state);
+      throw new Error("CRON_SECRET is missing. Add it as a Cloudflare Worker secret.");
     }
 
-    console.log(JSON.stringify({ event: "jarvis_cron_started", ...cronStart }));
+    let pollCount = 0;
+    let consecutiveFailures = 0;
+    let finalResult = null;
+    let stopReason = "time_window_elapsed";
 
-    const result = await runPoll(env, "scheduled", controller.scheduledTime);
-    if (!result.ok || !result.stateSaved) {
-      console.error(JSON.stringify({
-        event: "jarvis_scheduled_poll_failed",
-        checkedAt: result.checkedAt,
-        error: result.error || null,
-        stateSaved: result.stateSaved,
-      }));
-      throw new Error("Jarvis scheduled poll failed. Check the dashboard's latest poll result.");
+    // GET /api/whatsapp-agent long-polls for up to 25 seconds and returns sooner
+    // when an update arrives. This loop removes the usual two-minute cron gap.
+    // The deadline guard gives the last upstream request time to finish.
+    while (
+      Date.now() + REQUEST_DEADLINE_BUFFER_MS < stopAt &&
+      pollCount < MAX_POLLS_PER_RUN
+    ) {
+      finalResult = await runPoll(env, controller.scheduledTime);
+      state.lastPoll = finalResult;
+      pollCount += 1;
+
+      if (finalResult.ok) {
+        consecutiveFailures = 0;
+      } else {
+        consecutiveFailures += 1;
+        console.error(JSON.stringify({
+          event: "jarvis_poll_failed",
+          checkedAt: finalResult.checkedAt,
+          error: finalResult.error || null,
+          httpStatus: finalResult.httpStatus || null,
+          consecutiveFailures: consecutiveFailures,
+        }));
+        if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
+          stopReason = "repeated_poll_failures";
+          break;
+        }
+        await delay(RETRY_DELAY_MS);
+      }
+
+      if (Date.now() - lastSavedAt >= STATE_SAVE_INTERVAL_MS) {
+        await saveDashboardState(env, state);
+        lastSavedAt = Date.now();
+      }
+    }
+
+    if (pollCount >= MAX_POLLS_PER_RUN) stopReason = "poll_safety_cap_reached";
+    const finalSaved = await saveDashboardState(env, state);
+    console.log(JSON.stringify({
+      event: "jarvis_long_poll_cycle_finished",
+      startedAt: cronStart.startedAt,
+      finishedAt: new Date().toISOString(),
+      pollCount: pollCount,
+      stopReason: stopReason,
+      finalPollOk: finalResult ? finalResult.ok : false,
+      stateSaved: finalSaved,
+    }));
+
+    if (!finalSaved) {
+      throw new Error("Jarvis polling ran, but Cloudflare KV could not save the dashboard status.");
+    }
+    if (stopReason === "repeated_poll_failures" || (finalResult && !finalResult.ok)) {
+      throw new Error("Jarvis polling stopped after repeated failures. Check Worker logs and dashboard status.");
     }
   },
 };
