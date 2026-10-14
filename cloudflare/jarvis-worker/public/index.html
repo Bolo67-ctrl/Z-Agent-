@@ -189,7 +189,9 @@
       function statusFrom(data) {
         var scheduler = data.scheduler || {};
         setText("scheduler-value", "Every " + (scheduler.intervalMinutes || 2) + " minutes");
-        setText("scheduler-sub", "Cron: " + (scheduler.cron || "*/2 * * * *") + " · UTC");
+        var cronStart = data.lastCronStart;
+        var cronSeen = cronStart && cronStart.startedAt ? fmt(cronStart.startedAt) : "Not seen yet";
+        setText("scheduler-sub", "Cron: " + (scheduler.cron || "*/2 * * * *") + " · UTC · Last trigger: " + cronSeen);
 
         var poll = data.lastPoll;
         if (!poll) {
