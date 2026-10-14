@@ -25,6 +25,8 @@
   "triggers": {
     "crons": ["*/15 * * * *"]
   },
+  // Worker Previews need an explicit previews block; keep preview-specific settings empty.
+  "previews": {},
   // Public, non-sensitive configuration only. Keep DASHBOARD_TOKEN and CRON_SECRET as Cloudflare Secrets.
   "vars": {
     "AGENT_URL": "https://z-agent-zeta.vercel.app"
