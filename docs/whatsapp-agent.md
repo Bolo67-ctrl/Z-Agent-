@@ -39,7 +39,7 @@ The endpoint is protected by `CRON_SECRET`; **do not remove the authorization ch
 - A Cloudflare Worker and private dashboard have been added as source code under cloudflare/jarvis-worker. They are not live until Cloudflare is configured and deploys that project.
 - The Cloudflare Worker calls the existing protected Vercel poll endpoint every two minutes. It stores only a short poll summary in Cloudflare KV and uses the read-only health endpoint for the dashboard.
 - To deploy, follow cloudflare/jarvis-worker/README.md. Create the KV namespace, replace the placeholder namespace ID in wrangler.jsonc, connect the repository in Cloudflare Workers Builds with root directory /cloudflare/jarvis-worker, then set CRON_SECRET and DASHBOARD_TOKEN as Cloudflare secrets. Never commit secrets.
-- The GitHub Actions workflow .github/workflows/whatsapp-agent-poll.yml is still the current scheduled fallback until Cloudflare polling has been verified. After a successful Cloudflare scheduled run, disable the GitHub workflow schedule so both systems do not poll the same cursor.
+- Cloudflare is the primary scheduled poller. The GitHub Actions workflow .github/workflows/whatsapp-agent-poll.yml is now manual-only and requires the repository variable WHATSAPP_POLLING_ENABLED=true before it can run.
 - Do not run multiple pollers concurrently. A single active listener should own the update cursor.
 ## Reliability and privacy
 
