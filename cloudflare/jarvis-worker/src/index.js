@@ -56,7 +56,20 @@ function delay(ms) {
 
 async function readResponse(response) {
   const raw = await response.text();
-  try { return raw ? JSON.parse(raw) : {}; } catch { return {}; }
+  try {
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    // Vercel may return a non-JSON gateway/protection page. Keep only a short,
+    // plain-text excerpt so the dashboard can show a useful diagnostic.
+    const excerpt = raw
+      .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, " ")
+      .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, " ")
+      .replace(/<[^>]*>/g, " ")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 240);
+    return { _responseExcerpt: excerpt || null };
+  }
 }
 
 async function loadDashboardState(env) {
@@ -137,6 +150,7 @@ async function runPoll(env, scheduledTime) {
         checkedAt: startedAt,
         ok: response.ok && body.ok === true,
         httpStatus: response.status,
+        responseContentType: response.headers.get("content-type") || null,
         received: Number.isFinite(body.received) ? body.received : 0,
         handled: Number.isFinite(body.handled) ? body.handled : 0,
         skipped: Number.isFinite(body.skipped) ? body.skipped : 0,
@@ -150,7 +164,11 @@ async function runPoll(env, scheduledTime) {
           ? null
           : (typeof body.error === "string"
               ? body.error.slice(0, 240)
-              : "Poll endpoint returned HTTP " + response.status + "."),
+              : typeof body.message === "string"
+                ? body.message.slice(0, 240)
+                : typeof body._responseExcerpt === "string"
+                  ? body._responseExcerpt
+                  : "Poll endpoint returned HTTP " + response.status + "."),
       };
     } catch (error) {
       result = {
