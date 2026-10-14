@@ -1,5 +1,6 @@
 const DEFAULT_AGENT_URL = "https://z-agent-zeta.vercel.app";
 const LAST_POLL_KEY = "last-poll-v1";
+const LAST_CRON_KEY = "last-cron-start-v1";
 
 function json(body, status) {
   return Response.json(body, {
@@ -159,10 +160,12 @@ async function readAgentHealth(env) {
 
 async function dashboardStatus(env) {
   let lastPoll = null;
+  let lastCronStart = null;
   let storageReady = true;
 
   try {
     lastPoll = await env.POLL_STATE.get(LAST_POLL_KEY, "json");
+    lastCronStart = await env.POLL_STATE.get(LAST_CRON_KEY, "json");
   } catch (error) {
     storageReady = false;
   }
@@ -178,6 +181,7 @@ async function dashboardStatus(env) {
       note: "Cloudflare runs this schedule without your Chromebook being on. Reply time is not guaranteed to be instant.",
     },
     storageReady,
+    lastCronStart: lastCronStart || null,
     lastPoll: lastPoll || null,
     agentHealth: health,
     mode: "command-only",
@@ -203,9 +207,33 @@ export default {
   },
 
   async scheduled(controller, env) {
+    const cronStart = {
+      startedAt: new Date().toISOString(),
+      scheduledTime: controller.scheduledTime
+        ? new Date(controller.scheduledTime).toISOString()
+        : null,
+      cron: controller.cron || "*/2 * * * *",
+    };
+
+    try {
+      await env.POLL_STATE.put(LAST_CRON_KEY, JSON.stringify(cronStart), {
+        expirationTtl: 60 * 60 * 24 * 7,
+      });
+    } catch (error) {
+      console.error("Jarvis cron started, but the KV heartbeat could not be saved.", error);
+    }
+
+    console.log(JSON.stringify({ event: "jarvis_cron_started", ...cronStart }));
+
     const result = await runPoll(env, "scheduled", controller.scheduledTime);
     if (!result.ok || !result.stateSaved) {
-      console.error("Jarvis scheduled poll did not complete cleanly.");
+      console.error(JSON.stringify({
+        event: "jarvis_scheduled_poll_failed",
+        checkedAt: result.checkedAt,
+        error: result.error || null,
+        stateSaved: result.stateSaved,
+      }));
+      throw new Error("Jarvis scheduled poll failed. Check the dashboard's latest poll result.");
     }
   },
 };
